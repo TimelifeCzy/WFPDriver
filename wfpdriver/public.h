@@ -38,6 +38,7 @@
 #define MEM_TAG_IP_PACKET	'PILF'
 #define MEM_TAG_IP_DATA_COPY 'DILF'
 #define MEM_TAG_IP_INJECT	'IILF'
+#define MEM_TAG_NETWORK	'SWSW'
 
 #define MEM_TAG_DK	'UDDK'
 
@@ -72,10 +73,6 @@ extern DWORD g_dwLogLevel;
 #define IS_TCP_GAME_CHK() (g_dwLogLevel & 0x11000000)
 #define IS_UDP_GAME_CHK() (g_dwLogLevel & 0x21000000)
 
-//
-// Software Tracing Definitions 
-//
-
 #define WPP_CONTROL_GUIDS \
     WPP_DEFINE_CONTROL_GUID(CtlGuid,(a7f09d73, 5ac6, 4b8b, 8a33, e7b8c87e4609),  \
         WPP_DEFINE_BIT(FLAG_INFO))
@@ -83,5 +80,11 @@ extern DWORD g_dwLogLevel;
 #define _NF_INTERNALS
 
 BOOLEAN regPathExists(wchar_t* registryPath);
+
+enum _NF_DATA_CODE
+{
+	NF_DATALINK_SEND = 1,
+	NF_DATALINK_INJECT
+}NF_DATA_CODE;
 
 #endif

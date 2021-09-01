@@ -20,19 +20,6 @@ static HANDLE g_bfeStateSubscribeHandle = NULL;
 UNICODE_STRING u_devicename;
 UNICODE_STRING u_devicesyslink;
 
-VOID driver_clean()
-{
-	NTSTATUS status = STATUS_SUCCESS;
-
-	flowctl_free();
-	datalinkctx_free();
-
-	if (g_deviceControl)
-		IoDeleteDevice(g_deviceControl);
-
-	IoDeleteSymbolicLink(&u_devicesyslink);
-};
-
 NTSTATUS driver_init(
 	IN  PDRIVER_OBJECT  driverObject,
 	IN  PUNICODE_STRING registryPath)
@@ -53,7 +40,7 @@ NTSTATUS driver_init(
 		return status;
 	}
 
-	status = IoCreateSymbolicLink(&u_devicename, &u_devicesyslink);
+	status = IoCreateSymbolicLink(&u_devicesyslink, &u_devicename);
 	if(!NT_SUCCESS(status)){
 		return status;
 	}
@@ -175,3 +162,19 @@ DriverEntry(
 	driver_clean();
 	return status;
 }
+
+
+VOID driver_clean()
+{
+	NTSTATUS status = STATUS_SUCCESS;
+
+	flowctl_free();
+	datalinkctx_free();
+	callout_free();
+	devctrl_free();
+
+	if (g_deviceControl)
+		IoDeleteDevice(g_deviceControl);
+
+	IoDeleteSymbolicLink(&u_devicesyslink);
+};
