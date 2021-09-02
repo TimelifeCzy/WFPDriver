@@ -45,7 +45,6 @@ NTSTATUS driver_init(
 		return status;
 	}
 
-
 	return status;
 }
 
@@ -62,7 +61,7 @@ driverUnload(
 
 	if (g_bfeStateSubscribeHandle)
 	{
-		FwpmBfeStateUnsubscribeChanges0(g_bfeStateSubscribeHandle);
+		FwpmBfeStateUnsubscribeChanges(g_bfeStateSubscribeHandle);
 		g_bfeStateSubscribeHandle = NULL;
 	}
 
@@ -84,7 +83,6 @@ bfeStateCallback(
 		NTSTATUS status = callout_init(&g_deviceControl);
 		if (!NT_SUCCESS(status))
 		{
-			// LogOutput(1, DPREFIX"bfeStateCallback callouts_init failed, status=%x\n", status);
 			KdPrint((DPREFIX"bfeStateCallback callouts_init failed, status=%x\n", status));
 		}
 	}
@@ -115,6 +113,20 @@ DriverEntry(
 			return status;
 		}
 
+		// Init dectrl 
+		status = devctrl_init();
+		if (!NT_SUCCESS(status))
+		{
+			if (g_deviceControl)
+			{
+				IoDeleteDevice(g_deviceControl);
+				IoDeleteSymbolicLink(&u_devicesyslink);
+				g_deviceControl = NULL;
+			}
+			devctrl_free();
+			return status;
+		}
+
 		// Init MAK Packet
 		status = datalinkctx_init();
 		if (!NT_SUCCESS(status))
@@ -129,9 +141,6 @@ DriverEntry(
 			break;
 		}
 
-		// Init IO Thread
-		// PsCreateSystemThread();
-		
 		// Init WFP Callout
 		if (FwpmBfeStateGet() == FWPM_SERVICE_RUNNING)
 		{
@@ -172,12 +181,11 @@ VOID driver_clean()
 	{
 		IoDeleteDevice(g_deviceControl);
 		IoDeleteSymbolicLink(&u_devicesyslink);
+		g_deviceControl = NULL;
 	}
 	devctrl_setShutdown();
 	flowctl_free();
 	datalinkctx_free();
 	callout_free();
 	devctrl_free();
-
-		
 };

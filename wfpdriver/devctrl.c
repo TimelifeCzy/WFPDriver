@@ -125,7 +125,7 @@ NTSTATUS devctrl_init()
 		ZwClose(threadHandle);
 	}
 
-	return STATUS_SUCCESS;
+	return status;
 }
 
 NTSTATUS devctrl_free()
