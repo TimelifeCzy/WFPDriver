@@ -167,16 +167,17 @@ DriverEntry(
 VOID driver_clean()
 {
 	NTSTATUS status = STATUS_SUCCESS;
-	
-	devctrl_setShutdown();
 
+	if (g_deviceControl)
+	{
+		IoDeleteDevice(g_deviceControl);
+		IoDeleteSymbolicLink(&u_devicesyslink);
+	}
+	devctrl_setShutdown();
 	flowctl_free();
 	datalinkctx_free();
 	callout_free();
 	devctrl_free();
 
-	if (g_deviceControl)
-		IoDeleteDevice(g_deviceControl);
-
-	IoDeleteSymbolicLink(&u_devicesyslink);
+		
 };

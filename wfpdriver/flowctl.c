@@ -36,12 +36,10 @@ VOID flowctl_free()
 	while (!IsListEmpty(&g_lFlowCtl))
 	{
 		pFlowCtl = (PNF_FLOW_CTL)RemoveHeadList(&g_lFlowCtl);
-
-		// ht_remove_entry(g_phtFlowCtl, pFlowCtl->id);
-
+		sl_unlock(&lh);
 		ExFreeToNPagedLookasideList(&g_flowCtlLAList, pFlowCtl);
+		sl_lock(&g_sl, &lh);
 	}
-
 	sl_unlock(&lh);
 
 	ExDeleteNPagedLookasideList(&g_flowCtlLAList);
@@ -56,11 +54,8 @@ BOOLEAN flowctl_init()
         sizeof(NF_FLOW_CTL),
         MEM_TAG,
         0);
-
     InitializeListHead(&g_lFlowCtl);
-
     KeInitializeSpinLock(&g_sl);
-
     return TRUE;
 
 }

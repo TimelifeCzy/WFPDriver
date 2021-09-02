@@ -117,10 +117,10 @@ NTSTATUS datalinkctx_free()
 	PNF_DATALINK_BUFFER pDataCtl;
 
 	sl_lock(&g_sdataIoQueue, &lh);
-
 	while (!IsListEmpty(&g_dataLink))
 	{
 		pDataCtl = (PNF_DATALINK_BUFFER)RemoveHeadList(&g_dataLink);
+		sl_unlock(&lh);
 		if (pDataCtl->dataBuffer)
 		{
 			free_np(pDataCtl->dataBuffer);
@@ -128,11 +128,10 @@ NTSTATUS datalinkctx_free()
 		}
 		ExFreeToNPagedLookasideList(&g_dataLinkPacketsList, pDataCtl);
 		pDataCtl = NULL;
+		sl_lock(&g_sdataIoQueue, &lh);
 	}
-
 	sl_unlock(&lh);
 
 	ExDeleteNPagedLookasideList(&g_dataLinkPacketsList);
-
 	return STATUS_SUCCESS;
 }

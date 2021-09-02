@@ -131,14 +131,36 @@ NTSTATUS devctrl_init()
 NTSTATUS devctrl_free()
 {
 	PNF_QUEUE_ENTRY pQuery = NULL;
-
+	KLOCK_QUEUE_HANDLE lh;
+	sl_lock(&g_sIolock, &lh);
 	while (!IsListEmpty(&g_IoQueryHead))
 	{
 		pQuery = RemoveHeadList(&g_IoQueryHead);
+		sl_unlock(&lh);
+
 		ExFreeToNPagedLookasideList(&g_IoQueryList, pQuery);
 		pQuery = NULL;
+		sl_lock(&g_sIolock, &lh);
 	}
+	sl_unlock(&lh);
 	ExDeleteNPagedLookasideList(&g_IoQueryList);
+
+	// thread
+	if (g_ioThreadObject)
+	{
+		KeSetEvent(&g_ioThreadEvent, IO_NO_INCREMENT, FALSE);
+
+		KeWaitForSingleObject(
+			g_ioThreadObject,
+			Executive,
+			KernelMode,
+			FALSE,
+			NULL
+		);
+
+		ObDereferenceObject(g_ioThreadObject);
+		g_ioThreadObject = NULL;
+	}
 
 	return STATUS_SUCCESS;
 }
@@ -394,7 +416,6 @@ void devctrl_ioThread(
 			IoCompleteRequest(irp, IO_NO_INCREMENT);
 		}
 	}
-
 
 	PsTerminateSystemThread(STATUS_SUCCESS);
 }

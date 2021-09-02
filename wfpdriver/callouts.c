@@ -89,7 +89,6 @@ typedef struct _NF_MAC_INFO
 typedef struct _NF_DATALINK_HEAD
 {
 	LIST_ENTRY listEntry;
-	NF_FLOWESTABLISHED_HEAD	flowEsCtxBuffer;
 	NF_MAC_INFO macBuffer;
 }NF_DATALINK_HEAD, * PNF_DATALINK_HEAD;
 
@@ -172,26 +171,30 @@ helper_callout_classFn_flowEstablished(
 	memcpy(flowContextLocal->processPath, inMetaValues->processPath->data, inMetaValues->processPath->size);
 
 	// Context Layer to Mac DataLink Layer
-	DbgBreakPoint();
-	sl_lock(&g_flowspinlock, &lh);
-	status = FwpsFlowAssociateContext(
-		flowContextLocal->flowId,
-		flowContextLocal->layerId,
-		flowContextLocal->calloutId,
-		(UINT64)flowHead
-	);
-	sl_unlock(&lh);
-	if (!NT_SUCCESS(status))
-	{
-		goto Exit;
-	}
+	// 不关联支捕获
+	//sl_lock(&g_flowspinlock, &lh);
+	//status = FwpsFlowAssociateContext(
+	//	flowContextLocal->flowId,
+	//	flowContextLocal->layerId,
+	//	flowContextLocal->calloutId,
+	//	(UINT64)flowHead
+	//);
+	//sl_unlock(&lh);
+	//if (!NT_SUCCESS(status))
+	//{
+	//	goto Exit;
+	//}
 
 	// FlowContext Success --> Insert Callout Callouts_PackInfo_List
-	sl_lock(&g_flowspinlock, &lh);
-	InsertHeadList(&g_flowCtxPackte, &flowHead->listEntry);
-	// 需要指针设置空
-	flowHead = NULL;
-	sl_unlock(&lh);
+	//sl_lock(&g_flowspinlock, &lh);
+	//InsertHeadList(&g_flowCtxPackte, &flowHead->listEntry);
+	//// 需要指针设置空
+	//flowHead = NULL;
+	//sl_unlock(&lh);
+
+	// 直接push到decv
+
+	
 
 	classifyOut->actionType = FWP_ACTION_PERMIT;
 	if (filter->flags & FWPS_FILTER_FLAG_CLEAR_ACTION_RIGHT) 
@@ -252,7 +255,6 @@ helper_callout_classFn_mac(
 		FWPS_LAYER_OUTBOUND_MAC_FRAME_ETHERNET == inFixedValues->layerId
 		)
 	{
-		DbgBreakPoint();
 		pdatalink_info = (PNF_DATALINK_HEAD)ExAllocateFromNPagedLookasideList(&g_datalinkPacktsList);
 		if (!pdatalink_info)
 		{
@@ -260,8 +262,6 @@ helper_callout_classFn_mac(
 		}
 		RtlSecureZeroMemory(pdatalink_info, sizeof(NF_DATALINK_HEAD));
 
-		// Copy Mac Buffer
-		RtlCopyMemory(&pdatalink_info->flowEsCtxBuffer, flowContext, sizeof(NF_FLOWESTABLISHED_HEAD));
 		PNF_FLOWESTABLISHED_HEAD flowctx = (PNF_FLOWESTABLISHED_HEAD)flowContext;
 		if (!flowctx)
 		{
@@ -274,18 +274,16 @@ helper_callout_classFn_mac(
 		*/
 		pdatalink_info->macBuffer.code = 1;
 
-		//sl_lock(&g_datalinkspinlock, &lh);
-		//InsertHeadList(&g_datalinkCtxPackte, &pdatalink_info->listEntry);
-		//sl_unlock(&lh);
-
 		// push_data to datalink --> devctrl --> read I/O complate to r3
 		datalinkctx_pushdata(pdatalink_info, sizeof(NF_DATALINK_HEAD));
 
-		sl_lock(&g_datalinkspinlock, &lh);
-		ExFreeToNPagedLookasideList(&g_datalinkPacktsList, pdatalink_info);
-		sl_unlock(&lh);
-
-		pdatalink_info = NULL;
+		if (pdatalink_info)
+		{
+			sl_lock(&g_datalinkspinlock, &lh);
+			ExFreeToNPagedLookasideList(&g_datalinkPacktsList, pdatalink_info);
+			sl_unlock(&lh);
+			pdatalink_info = NULL;
+		}
 	}
 
 	classifyOut->actionType = FWP_ACTION_PERMIT;
@@ -333,30 +331,34 @@ VOID helper_callout_deleteFn_mac(
 	============================================= */
 VOID delete_flowContext(void)
 {
-	while (!IsListEmpty(&g_flowCtxPacketsLAList))
+	KLOCK_QUEUE_HANDLE flowListLockHandle;
+	NF_FLOWESTABLISHED_HEAD* flowHead = NULL;
+
+	sl_lock(&g_flowspinlock, &flowListLockHandle);
+	while (!IsListEmpty(&g_flowCtxPackte))
 	{
-		KLOCK_QUEUE_HANDLE flowListLockHandle;
-		NF_FLOWESTABLISHED_HEAD* flowHead = NULL;
+		flowHead = RemoveHeadList(&g_flowCtxPackte);
+		sl_unlock(&flowListLockHandle);
 
-		sl_lock(&g_flowspinlock, &flowListLockHandle);
-
-		if (!IsListEmpty(&g_flowCtxPacketsLAList))
-		{
-			flowHead = RemoveHeadList(&g_flowCtxPacketsLAList);
-		}
-
-		KeReleaseInStackQueuedSpinLock(&flowListLockHandle);
-
+		// release flowctx 关联才需要释放
 		if (flowHead != NULL)
-		{
+		{	
 			// flowContext->deleted = TRUE;
 			FwpsFlowRemoveContext(
 				flowHead->flowinfo.flowId,
 				flowHead->flowinfo.layerId,
 				flowHead->flowinfo.calloutId
 			);
+
+			ExFreeToNPagedLookasideList(&g_flowCtxPacketsLAList, flowHead);
+			flowHead = NULL;
+
 		}
+		sl_lock(&g_flowspinlock, &flowListLockHandle);
 	}
+
+	ExDeleteNPagedLookasideList(&g_flowCtxPacketsLAList);
+	sl_unlock(&flowListLockHandle);
 }
 
 NTSTATUS
@@ -715,7 +717,6 @@ callouts_registerCallouts(
 	return status;
 }
 
-
 BOOLEAN callout_init(
 	PDEVICE_OBJECT deviceObject
 )
@@ -815,8 +816,8 @@ VOID callout_free()
 	PNF_DATALINK_HEAD			pDatalinkCtx = NULL;
 	KLOCK_QUEUE_HANDLE lh;
 
-	// clean flow 
-	delete_flowContext();
+	// clean flow - 没有做关联不需要释放
+	// delete_flowContext();
 
 	// clean FlowCxt_List
 	sl_lock(&g_flowspinlock, &lh);
@@ -826,17 +827,14 @@ VOID callout_free()
 		sl_unlock(&lh);
 
 		// 检测是否已经被释放过 - 防止双重释放
-		if (!pflowCtx)
-			continue;
-
-		// release
-		ExFreeToNPagedLookasideList(&g_flowCtxPacketsLAList, pflowCtx);
-		pflowCtx = NULL;
-
+		if (pflowCtx != NULL) {
+			ExFreeToNPagedLookasideList(&g_flowCtxPacketsLAList, pflowCtx);
+			pflowCtx = NULL;
+		}
 		sl_lock(&g_flowspinlock, &lh);
 	}
-	ExDeleteNPagedLookasideList(&g_flowCtxPacketsLAList);
 	sl_unlock(&lh);
+	ExDeleteNPagedLookasideList(&g_flowCtxPacketsLAList);
 
 	// clean DataLinkCxt_List
 	sl_lock(&g_datalinkspinlock, &lh);
@@ -844,24 +842,20 @@ VOID callout_free()
 	{
 		pDatalinkCtx = (PNF_DATALINK_HEAD)RemoveHeadList(&g_datalinkCtxPackte);
 		sl_unlock(&lh);
-
-		// 检测是否已经被释放过 - 防止双重释放
-		if (!pDatalinkCtx)
-			continue;
-
-		// release
-		ExFreeToNPagedLookasideList(&g_datalinkCtxPackte, pDatalinkCtx);
-		pDatalinkCtx = NULL;
+		
+		if (pflowCtx != NULL) {
+			ExFreeToNPagedLookasideList(&g_datalinkCtxPackte, pDatalinkCtx);
+			pDatalinkCtx = NULL;
+		}
 
 		sl_lock(&g_datalinkspinlock, &lh);
 	}
-	ExDeleteNPagedLookasideList(&g_datalinkCtxPackte);
 	sl_unlock(&lh);
-
+	ExDeleteNPagedLookasideList(&g_datalinkCtxPackte);
 
 	// clean guid
-	FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_flow_established_v4);
-	FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_flow_established_v6);
+	// FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_flow_established_v4);
+	// FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_flow_established_v6);
 	FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_inbound_mac_etherent);
 	FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_outbound_mac_etherent);
 
