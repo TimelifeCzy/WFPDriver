@@ -1,5 +1,5 @@
 # wfp_datalink_demo
-最早的方案wfo+ndis来做，后来netfilter sdk2.0团队给出了更优的方案(win8 - win10)：
+最初方案wfp+ndis，后来请教Netfilter sdk2.0，思路一致但是给出了更优的方案(win8 - win10)：
 
 If    you   have   callouts   on   FWPM_LAYER_ALE_AUTH_CONNECT_*   and
 FWPM_LAYER_ALE_AUTH_LISTEN_* layers in the same binary, it is possible
