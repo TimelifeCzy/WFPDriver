@@ -5,7 +5,6 @@
 #include "datalinkctx.h"
 
 static NPAGED_LOOKASIDE_LIST	g_dataLinkPacketsList;
-static LIST_ENTRY				g_dataLink;
 static KSPIN_LOCK				g_sdataIoQueue;
 
 static NF_DATALINK_DATA			g_datalink_data;
@@ -18,7 +17,6 @@ NF_DATALINK_DATA* datalink_get()
 NTSTATUS datalinkctx_init()
 {
 	NTSTATUS status = STATUS_SUCCESS;
-	InitializeListHead(&g_dataLink);
 	ExInitializeNPagedLookasideList(
 		&g_dataLinkPacketsList,
 		NULL,
@@ -117,9 +115,9 @@ NTSTATUS datalinkctx_free()
 	PNF_DATALINK_BUFFER pDataCtl;
 
 	sl_lock(&g_sdataIoQueue, &lh);
-	while (!IsListEmpty(&g_dataLink))
+	while (!IsListEmpty(&g_datalink_data.pendedPackets))
 	{
-		pDataCtl = (PNF_DATALINK_BUFFER)RemoveHeadList(&g_dataLink);
+		pDataCtl = (PNF_DATALINK_BUFFER)RemoveHeadList(&g_datalink_data.pendedPackets);
 		sl_unlock(&lh);
 		if (pDataCtl->dataBuffer)
 		{

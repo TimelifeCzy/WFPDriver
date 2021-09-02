@@ -84,7 +84,7 @@ BOOLEAN regPathExists(wchar_t* registryPath);
 enum _NF_DATA_CODE
 {
 	NF_DATALINK_SEND = 1,
-	NF_DATALINK_INJECT
+	NF_FLOWCTX_SEND
 }NF_DATA_CODE;
 
 typedef UNALIGNED struct _NF_DATA

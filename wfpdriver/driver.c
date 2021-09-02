@@ -164,14 +164,13 @@ DriverEntry(
 			}
 		}
 
-
 		return status;
 	} while (FALSE);
 	
+	// Ê§°Ü
 	driver_clean();
 	return status;
 }
-
 
 VOID driver_clean()
 {

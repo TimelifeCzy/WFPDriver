@@ -186,9 +186,7 @@ BOOLEAN	devctrl_isShutdown()
 	return res;
 }
 
-NTSTATUS devctrl_pushDataLinkCtxBuffer(
-	int code
-)
+NTSTATUS devctrl_pushDataLinkCtxBuffer(int code)
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	PNF_QUEUE_ENTRY pQuery = NULL;
@@ -210,11 +208,6 @@ NTSTATUS devctrl_pushDataLinkCtxBuffer(
 		sl_unlock(&lh);
 	}
 	break;
-	case NF_DATALINK_INJECT:
-	{
-	
-	}
-	break;
 	default:
 		break;
 	}
@@ -223,7 +216,36 @@ NTSTATUS devctrl_pushDataLinkCtxBuffer(
 	KeSetEvent(&g_ioThreadEvent, IO_NO_INCREMENT, FALSE);
 
 	return status;
+}
 
+NTSTATUS devctrl_pushFlowCtxBuffer(int code)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	PNF_QUEUE_ENTRY pQuery = NULL;
+	KLOCK_QUEUE_HANDLE lh;
+	// Send to I/O(Read) Buffer
+	switch (code)
+	{
+	case NF_FLOWCTX_SEND:
+	{
+		pQuery = ExAllocateFromNPagedLookasideList(&g_IoQueryList);
+		if (!pQuery)
+		{
+			status = STATUS_UNSUCCESSFUL;
+			break;
+		}
+		pQuery->code = code;
+		sl_lock(&g_sIolock, &lh);
+		InsertHeadList(&g_IoQueryHead, &pQuery->entry);
+		sl_unlock(&lh);
+	}
+	break;
+	default:
+		break;
+	}
+	// keSetEvent
+	KeSetEvent(&g_ioThreadEvent, IO_NO_INCREMENT, FALSE);
+	return status;
 }
 
 NTSTATUS devtrl_popDataLinkData(UINT64* pOffset)
@@ -311,6 +333,11 @@ UINT64 devctrl_fillBuffer()
 		case NF_DATALINK_SEND:
 		{
 			status = devtrl_popDataLinkData(&offset);
+		}
+		break;
+		case NF_FLOWCTX_SEND:
+		{
+			// pop flowctx data
 		}
 		break;
 		default:
