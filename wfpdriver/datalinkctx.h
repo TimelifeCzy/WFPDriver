@@ -14,6 +14,7 @@ typedef struct _NF_DATALINK_DATA
 	KSPIN_LOCK		lock;				// Context spinlock
 }NF_DATALINK_DATA, * PNF_DATALINK_DATA;
 
+NF_DATALINK_DATA* datalink_get();
 NTSTATUS datalinkctx_init();
 NTSTATUS datalinkctx_free();
 PNF_DATALINK_BUFFER datalinkctx_packallocate(int lens);

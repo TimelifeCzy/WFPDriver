@@ -10,6 +10,11 @@ static KSPIN_LOCK				g_sdataIoQueue;
 
 static NF_DATALINK_DATA			g_datalink_data;
 
+NF_DATALINK_DATA* datalink_get()
+{
+	return &g_datalink_data;
+}
+
 NTSTATUS datalinkctx_init()
 {
 	NTSTATUS status = STATUS_SUCCESS;
@@ -116,6 +121,11 @@ NTSTATUS datalinkctx_free()
 	while (!IsListEmpty(&g_dataLink))
 	{
 		pDataCtl = (PNF_DATALINK_BUFFER)RemoveHeadList(&g_dataLink);
+		if (pDataCtl->dataBuffer)
+		{
+			free_np(pDataCtl->dataBuffer);
+			pDataCtl->dataBuffer = NULL;
+		}
 		ExFreeToNPagedLookasideList(&g_dataLinkPacketsList, pDataCtl);
 		pDataCtl = NULL;
 	}

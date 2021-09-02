@@ -167,6 +167,8 @@ DriverEntry(
 VOID driver_clean()
 {
 	NTSTATUS status = STATUS_SUCCESS;
+	
+	devctrl_setShutdown();
 
 	flowctl_free();
 	datalinkctx_free();

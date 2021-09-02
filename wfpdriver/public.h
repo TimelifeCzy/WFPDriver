@@ -87,4 +87,17 @@ enum _NF_DATA_CODE
 	NF_DATALINK_INJECT
 }NF_DATA_CODE;
 
+typedef UNALIGNED struct _NF_DATA
+{
+	int				code;
+	INT64			id;
+	unsigned long	bufferSize;
+	char 			buffer[1];
+} NF_DATA, * PNF_DATA;
+
+typedef UNALIGNED struct _NF_READ_RESULT
+{
+	unsigned __int64 length;
+} NF_READ_RESULT, * PNF_READ_RESULT;
+
 #endif
