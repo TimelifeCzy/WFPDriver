@@ -12,6 +12,23 @@
 #define CTL_DEVCTRL_OPEN_SHAREMEM \
 	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_NEITHER, FILE_ANY_ACCESS)
 
+typedef UNALIGNED struct _NF_BUFFERS
+{
+	unsigned __int64 inBuf;
+	unsigned __int64 inBufLen;
+	unsigned __int64 outBuf;
+	unsigned __int64 outBufLen;
+} NF_BUFFERS, * PNF_BUFFERS;
+
+typedef UNALIGNED struct _NF_READ_RESULT
+{
+	unsigned __int64 length;
+} NF_READ_RESULT, * PNF_READ_RESULT;
+
+static NF_BUFFERS	g_nfBuffers;
+
+static HANDLE		g_hDevice;
+
 static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter);
 
 enum IoctCode
@@ -32,6 +49,7 @@ int DevctrlIoct::devctrl_init()
 	m_devhandler = NULL;
 	m_threadobjhandler = NULL;
 	m_dwthreadid = 0;
+	g_hDevice = NULL;
 	return 1;
 }
 
@@ -69,7 +87,35 @@ int DevctrlIoct::devctrl_opendeviceSylink(const char* devSylinkName)
 	if (!hDevice)
 		return -1;
 
+	g_hDevice = hDevice;
 	m_devhandler = hDevice;
+
+	return 1;
+}
+
+int DevctrlIoct::devctrl_InitshareMem()
+{
+	DWORD dwBytesReturned = 0;
+	memset(&g_nfBuffers, 0, sizeof(g_nfBuffers));
+	
+	if (!m_devhandler)
+		return -1;
+
+	if (!DeviceIoControl(
+		m_devhandler,
+		CTL_DEVCTRL_OPEN_SHAREMEM,
+		NULL, 
+		0,
+		(LPVOID)&g_nfBuffers, 
+		sizeof(g_nfBuffers),
+		NULL, 
+		NULL))
+	{
+		if (GetLastError() != ERROR_IO_PENDING)
+		{
+			return -1;
+		}
+	}
 
 	return 1;
 }
@@ -103,7 +149,16 @@ int DevctrlIoct::devctrl_sendioct(const int ioctcode)
 	if (!m_devhandler)
 		return -1;
 
-	BOOL status = DeviceIoControl(m_devhandler, ioctcode, NULL, 0, NULL, 0, &dSize, NULL);
+	BOOL status = DeviceIoControl(
+		m_devhandler,
+		ioctcode,
+		NULL,
+		0,
+		NULL,
+		0,
+		&dSize,
+		NULL
+	);
 	if (!status)
 		return -2;
 
@@ -116,16 +171,18 @@ int DevctrlIoct::devctrl_writeio()
 }
 
 // ReadFile Driver Buffer
-DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
+static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 {
-	for (;;)
+	NF_READ_RESULT rr;
+
+	do 
 	{
-		// ReadFile
-
-		// Dispathch Handler
-
-
-	}
+		if (!g_hDevice)
+			break;
+		ReadFile(g_hDevice, &rr, sizeof(rr), NULL, &ol);
+	
+	
+	} while (true);
 
 	return 0;
 }

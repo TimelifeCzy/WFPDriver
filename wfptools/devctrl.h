@@ -12,6 +12,7 @@ public:
 	int devctrl_workthread();
 	int devctrl_waitSingeObject();
 	void devctrl_clean();
+	int devctrl_InitshareMem();
 
 private:
 	HANDLE m_devhandler;

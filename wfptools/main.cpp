@@ -23,25 +23,37 @@ int main(void)
 		return -1;
 	}
 
-	// Open driver
-	status = devobj.devctrl_opendeviceSylink(devSyLinkName);
-	if (!status)
+	do 
 	{
-		cout << "devctrl_opendeviceSylink error: main.c --> lines: 30" << endl;
-		return -1;
-	}
+		// Open driver
+		status = devobj.devctrl_opendeviceSylink(devSyLinkName);
+		if (!status)
+		{
+			cout << "devctrl_opendeviceSylink error: main.c --> lines: 30" << endl;
+			break;
+		}
 
-	// Start devctrl workThread
-	status = devobj.devctrl_workthread();
-	if (!status)
-	{
-		cout << "devctrl_workthread error: main.c --> lines: 38" << endl;
-		return -1;
-	}
+		// Init share Mem
+		status = devobj.devctrl_InitshareMem();
+		if (!status)
+		{
+			cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
+			break;
+		}
+
+		// Start devctrl workThread
+		status = devobj.devctrl_workthread();
+		if (!status)
+		{
+			cout << "devctrl_workthread error: main.c --> lines: 46" << endl;
+			break;
+		}
+
+		// Wait Thread Exit
+		devobj.devctrl_waitSingeObject();
+
+	} while (false);
 	
-	// Wait Thread Exit
-	devobj.devctrl_waitSingeObject();
-
 	// clean
 	devobj.devctrl_clean();
 

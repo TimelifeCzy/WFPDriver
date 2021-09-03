@@ -107,6 +107,17 @@ helper_callout_classFn_flowEstablished(
 	NTSTATUS status = STATUS_SUCCESS;
 	KLOCK_QUEUE_HANDLE lh;
 	PNF_CALLOUT_FLOWESTABLISHED_INFO flowContextLocal = NULL;
+	
+	// 关闭监控的时候，不做任何操作
+	if (g_monitorflag == 0)
+	{
+		classifyOut->actionType = FWP_ACTION_PERMIT;
+		if (filter->flags & FWPS_FILTER_FLAG_CLEAR_ACTION_RIGHT)
+		{
+			classifyOut->flags &= ~FWPS_RIGHT_ACTION_WRITE;
+		}
+		return;
+	}
 
 	flowContextLocal = (PNF_CALLOUT_FLOWESTABLISHED_INFO)ExAllocateFromNPagedLookasideList(&g_callouts_flowCtxPacketsLAList);
 	if (flowContextLocal == NULL)
@@ -222,6 +233,17 @@ helper_callout_classFn_mac(
 	KLOCK_QUEUE_HANDLE lh;
 	NTSTATUS status = STATUS_SUCCESS;
 	DbgBreakPoint();
+
+	// 关闭监控的时候，不做任何操作
+	if (g_monitorflag == 0)
+	{
+		classifyOut->actionType = FWP_ACTION_PERMIT;
+		if (filter->flags & FWPS_FILTER_FLAG_CLEAR_ACTION_RIGHT)
+		{
+			classifyOut->flags &= ~FWPS_RIGHT_ACTION_WRITE;
+		}
+		return;
+	}
 
 	if (!layerData)
 	{
