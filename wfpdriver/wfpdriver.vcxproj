@@ -172,6 +172,7 @@
     <ClInclude Include="datalinkctx.h" />
     <ClInclude Include="devctrl.h" />
     <ClInclude Include="driver.h" />
+    <ClInclude Include="establishedctx.h" />
     <ClInclude Include="flowctl.h" />
     <ClInclude Include="ntdefines.h" />
     <ClInclude Include="public.h" />
@@ -182,6 +183,7 @@
     <ClCompile Include="datalinkctx.c" />
     <ClCompile Include="devctrl.c" />
     <ClCompile Include="driver.c" />
+    <ClCompile Include="establishedctx.c" />
     <ClCompile Include="flowctl.c" />
     <ClCompile Include="util.c" />
   </ItemGroup>

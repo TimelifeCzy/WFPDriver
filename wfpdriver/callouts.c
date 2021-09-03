@@ -471,7 +471,6 @@ NTSTATUS callout_addDataLinkMacFilter(
 		//filterConditions[couts].matchType = FWP_MATCH_EQUAL;
 		//couts++;
 		
-
 		fwpfilter.filterCondition = filterConditions;
 		fwpfilter.numFilterConditions = couts;
 
@@ -525,11 +524,21 @@ callouts_addFilters()
 		//if (!NT_SUCCESS(status))
 		//	break;
 		
-		status = callout_addDataLinkMacFilter(&g_calloutGuid_inbound_mac_etherent, &FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET, &subLayer, 1);
+		status = callout_addDataLinkMacFilter(
+			&g_calloutGuid_inbound_mac_etherent,
+			&FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET,
+			&subLayer,
+			1
+		);
 		if (!NT_SUCCESS(status))
 			break;
 
-		status = callout_addDataLinkMacFilter(&g_calloutGuid_outbound_mac_etherent, &FWPM_LAYER_OUTBOUND_MAC_FRAME_ETHERNET, &subLayer, 2);
+		status = callout_addDataLinkMacFilter(
+			&g_calloutGuid_outbound_mac_etherent,
+			&FWPM_LAYER_OUTBOUND_MAC_FRAME_ETHERNET,
+			&subLayer,
+			2
+		);
 		if (!NT_SUCCESS(status))
 			break;
 
@@ -754,9 +763,6 @@ VOID callout_free()
 {
 	PNF_CALLOUT_FLOWESTABLISHED_INFO	pcalloutsflowCtx = NULL;
 	PNF_CALLOUT_MAC_INFO				pcalloutsDatalinkCtx = NULL;
-
-	// clean flow - 没有做关联不需要释放
-	// delete_flowContext();
 
 	ExDeleteNPagedLookasideList(&g_callouts_flowCtxPacketsLAList);
 	ExDeleteNPagedLookasideList(&g_callouts_datalinkPacktsList);

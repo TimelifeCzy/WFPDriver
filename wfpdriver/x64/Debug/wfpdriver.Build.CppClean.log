@@ -1,6 +1,7 @@
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\vc142.pdb
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\util.obj
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\flowctl.obj
+d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\establishedctx.obj
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\driver.obj
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\devctrl.obj
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\datalinkctx.obj
@@ -14,13 +15,14 @@ d:\wfp_datalink_mac_demo\x64\debug\wfpdriver.inf
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\cl.command.1.tlog
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\cl.read.1.tlog
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\cl.write.1.tlog
-d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\inf2cat-expand.15220.read.1.tlog
-d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\inf2cat-expand.15220.write.1.tlog
+d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\inf2cat-expand.3508.read.1.tlog
+d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\inf2cat-expand.3508.write.1.tlog
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\inf2cat-expand.read.1.tlog
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\inf2cat-expand.write.1.tlog
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\inf2cat.command.1.tlog
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\inf2cat.read.1.tlog
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\inf2cat.write.1.tlog
+d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\inf2cat.write.8.tlog
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\link.command.1.tlog
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\link.read.1.tlog
 d:\wfp_datalink_mac_demo\wfpdriver\x64\debug\wfpdriver.tlog\link.write.1.tlog

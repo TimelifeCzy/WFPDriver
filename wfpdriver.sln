@@ -5,6 +5,8 @@ VisualStudioVersion = 16.0.31424.327
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "wfpdriver", "wfpdriver\wfpdriver.vcxproj", "{17254E58-A2DB-49B5-8359-E4C754F709E1}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "wfptools", "wfptools\wfptools.vcxproj", "{BE960098-BF08-4063-ACCC-4785E81689B1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM = Debug|ARM
@@ -41,6 +43,18 @@ Global
 		{17254E58-A2DB-49B5-8359-E4C754F709E1}.Release|x86.ActiveCfg = Release|Win32
 		{17254E58-A2DB-49B5-8359-E4C754F709E1}.Release|x86.Build.0 = Release|Win32
 		{17254E58-A2DB-49B5-8359-E4C754F709E1}.Release|x86.Deploy.0 = Release|Win32
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Debug|ARM.ActiveCfg = Debug|Win32
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Debug|ARM64.ActiveCfg = Debug|Win32
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Debug|x64.ActiveCfg = Debug|x64
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Debug|x64.Build.0 = Debug|x64
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Debug|x86.ActiveCfg = Debug|Win32
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Debug|x86.Build.0 = Debug|Win32
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Release|ARM.ActiveCfg = Release|Win32
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Release|ARM64.ActiveCfg = Release|Win32
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Release|x64.ActiveCfg = Release|x64
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Release|x64.Build.0 = Release|x64
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Release|x86.ActiveCfg = Release|Win32
+		{BE960098-BF08-4063-ACCC-4785E81689B1}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
