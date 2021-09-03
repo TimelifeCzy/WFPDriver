@@ -71,20 +71,12 @@ VOID datalinkctx_packfree(
 	ExFreeToNPagedLookasideList(&g_dataLinkPacketsList, pPacket);
 }
 
-NTSTATUS datalinkctx_popdata()
-{
-	NTSTATUS status = STATUS_SUCCESS;
-
-	return status;
-}
-
 NTSTATUS datalinkctx_pushdata(
 	PVOID64 packet,
 	int lens
 )
 {
 	NTSTATUS status = STATUS_SUCCESS;
-	KLOCK_QUEUE_HANDLE flowListLockHandle;
 	KLOCK_QUEUE_HANDLE lh;
 	PNF_DATALINK_BUFFER pdatalinkinfo = NULL;
 
@@ -98,6 +90,7 @@ NTSTATUS datalinkctx_pushdata(
 		return FALSE;
 	}
 
+	pdatalinkinfo->dataLength = lens;
 	RtlCopyMemory(pdatalinkinfo->dataBuffer, packet, lens);
 
 	sl_lock(&g_datalink_data.lock, &lh);

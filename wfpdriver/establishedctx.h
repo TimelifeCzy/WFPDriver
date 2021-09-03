@@ -17,9 +17,10 @@ typedef struct _NF_FLOWESTABLISHED_DATA
 NTSTATUS establishedctx_init();
 VOID establishedctx_free();
 
-NTSTATUS establishedctx_pushflowestablishedctx(PVOID64 pBuffer, int lens);
-NTSTATUS establishedctx_popflowestablishedctx();
+NF_FLOWESTABLISHED_BUFFER* establishedctx_packallocte(int lens);
+VOID establishedctx_packfree(PNF_FLOWESTABLISHED_BUFFER pPacket);
 
+NTSTATUS establishedctx_pushflowestablishedctx(PVOID64 pBuffer, int lens);
 NF_FLOWESTABLISHED_DATA* establishedctx_get();
 
 #endif // !_ESTABLISHEDCTX_H

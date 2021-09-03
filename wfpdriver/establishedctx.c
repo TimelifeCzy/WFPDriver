@@ -1,4 +1,5 @@
 #include "public.h"
+#include "devctrl.h"
 #include "establishedctx.h"
 
 static NPAGED_LOOKASIDE_LIST	g_establishedList;
@@ -43,18 +44,66 @@ VOID establishedctx_free()
 	ExDeleteNPagedLookasideList(&g_establishedList);
 }
 
-NTSTATUS establishedctx_pushflowestablishedctx(PVOID64 pBuffer, int lens)
+NF_FLOWESTABLISHED_BUFFER* establishedctx_packallocte(int lens)
 {
-	NTSTATUS status = STATUS_SUCCESS;
+	if (lens < 0)
+		return NULL;
 
+	PNF_FLOWESTABLISHED_BUFFER pNfdatalink = NULL;
+	pNfdatalink = ExAllocateFromNPagedLookasideList(&g_establishedList);
+	if (!pNfdatalink)
+		return FALSE;
 
-	return status;
+	memset(pNfdatalink, 0, sizeof(NF_FLOWESTABLISHED_BUFFER));
+
+	if (lens > 0)
+	{
+		pNfdatalink->dataBuffer = ExAllocatePoolWithTag(NonPagedPool, lens, 'DPLC');
+		if (!pNfdatalink->dataBuffer)
+		{
+			ExFreeToNPagedLookasideList(&g_establishedList, pNfdatalink);
+			return FALSE;
+		}
+	}
+	return pNfdatalink;
 }
 
-NTSTATUS establishedctx_popflowestablishedctx()
+VOID establishedctx_packfree(
+	PNF_FLOWESTABLISHED_BUFFER pPacket
+)
 {
-	NTSTATUS status = STATUS_SUCCESS;
+	if (pPacket->dataBuffer)
+	{
+		free_np(pPacket->dataBuffer);
+		pPacket->dataBuffer = NULL;
+	}
+	ExFreeToNPagedLookasideList(&g_establishedList, pPacket);
+}
 
+NTSTATUS establishedctx_pushflowestablishedctx(
+	PVOID64 pBuffer, 
+	int lens
+)
+{
+	KLOCK_QUEUE_HANDLE lh;
+	NTSTATUS status = STATUS_SUCCESS;
+	PNF_FLOWESTABLISHED_BUFFER flowbuf = NULL;
+
+	if (!pBuffer && (lens < 1))
+		return FALSE;
+
+	flowbuf = establishedctx_packallocte(lens);
+	if (!flowbuf)
+		return STATUS_UNSUCCESSFUL;
+
+	flowbuf->dataLength = lens;
+	RtlCopyMemory(flowbuf->dataBuffer, pBuffer, lens);
+
+	sl_lock(&g_establishedlock, &lh);
+	InsertHeadList(&g_flowesobj.pendedPackets, flowbuf);
+	sl_unlock(&lh);
+
+	devctrl_pushFlowCtxBuffer(NF_FLOWCTX_SEND);
 
 	return status;
 }

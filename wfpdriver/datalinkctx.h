@@ -19,7 +19,6 @@ NTSTATUS datalinkctx_init();
 NTSTATUS datalinkctx_free();
 PNF_DATALINK_BUFFER datalinkctx_packallocate(int lens);
 VOID datalinkctx_packfree(PNF_DATALINK_BUFFER pPacket);
-NTSTATUS datalinkctx_popdata();
 NTSTATUS datalinkctx_pushdata(
 	PVOID64 packet,
 	int lens

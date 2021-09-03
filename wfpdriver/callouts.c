@@ -1,6 +1,7 @@
 #include "public.h"
 #include "devctrl.h"
 #include "datalinkctx.h"
+#include "establishedctx.h"
 #include "callouts.h"
 
 #include <fwpmk.h>
@@ -40,9 +41,9 @@ static GUID		g_sublayerGuid;
 static HANDLE	g_engineHandle = NULL;
 
 /*
-* Established Layer
+* Callouts Buffer - Established Layer
 */
-typedef struct _NF_FLOWESTABLISHED_INFO
+typedef struct _NF_CALLOUT_FLOWESTABLISHED_INFO
 {
 	ADDRESS_FAMILY addressFamily;
 #pragma warning(push)
@@ -67,35 +68,21 @@ typedef struct _NF_FLOWESTABLISHED_INFO
 	UINT64 processId;
 
 	LONG refCount;
-}NF_FLOWESTABLISHED_INFO, * PNF_FLOWESTABLISHED_INFO;
-
-typedef struct _NF_FLOWESTABLISHED_HEAD
-{
-	LIST_ENTRY listEntry;
-	NF_FLOWESTABLISHED_INFO flowinfo;
-}NF_FLOWESTABLISHED_HEAD, * PNF_FLOWESTABLISHED_HEAD;
-
-static NPAGED_LOOKASIDE_LIST	g_flowCtxPacketsLAList;
-static LIST_ENTRY				g_flowCtxPackte;
-static KSPIN_LOCK				g_flowspinlock;
+}NF_CALLOUT_FLOWESTABLISHED_INFO, * PNF_CALLOUT_FLOWESTABLISHED_INFO;
 
 /*
-* DataLink Layer
+* Callouts Buffer - DataLink Layer
 */
-typedef struct _NF_MAC_INFO
+typedef struct _NF_CALLOUT_MAC_INFO
 {
 	int code;
-}NF_MAC_INFO, * PNF_MAC_INFO;
+}NF_CALLOUT_MAC_INFO, * PNF_CALLOUT_MAC_INFO;
 
-typedef struct _NF_DATALINK_HEAD
-{
-	LIST_ENTRY listEntry;
-	NF_MAC_INFO macBuffer;
-}NF_DATALINK_HEAD, * PNF_DATALINK_HEAD;
+static NPAGED_LOOKASIDE_LIST	g_callouts_flowCtxPacketsLAList;
+static KSPIN_LOCK				g_callouts_flowspinlock;
 
-static NPAGED_LOOKASIDE_LIST	g_datalinkPacktsList;
-static LIST_ENTRY				g_datalinkCtxPackte;
-static KSPIN_LOCK				g_datalinkspinlock;
+static NPAGED_LOOKASIDE_LIST	g_callouts_datalinkPacktsList;
+static KSPIN_LOCK				g_callouts_datalinkspinlock;
 
 #define NFSDK_SUBLAYER_NAME L"Dark Sublayer"
 #define NFSDK_RECV_SUBLAYER_NAME L"Dark Recv Sublayer"
@@ -117,22 +104,15 @@ helper_callout_classFn_flowEstablished(
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	KLOCK_QUEUE_HANDLE lh;
-	PNF_FLOWESTABLISHED_HEAD flowHead = NULL;
-	PNF_FLOWESTABLISHED_INFO flowContextLocal = NULL;
+	PNF_CALLOUT_FLOWESTABLISHED_INFO flowContextLocal = NULL;
 
-	flowHead = (PNF_FLOWESTABLISHED_HEAD)ExAllocateFromNPagedLookasideList(&g_flowCtxPacketsLAList);
-	if (flowHead == NULL)
+	flowContextLocal = (PNF_CALLOUT_FLOWESTABLISHED_INFO)ExAllocateFromNPagedLookasideList(&g_callouts_flowCtxPacketsLAList);
+	if (flowContextLocal == NULL)
 	{
 		status = STATUS_NO_MEMORY;
 		goto Exit;
 	}
-	RtlSecureZeroMemory(flowHead, sizeof(NF_FLOWESTABLISHED_HEAD));
-
-	flowContextLocal = &flowHead->flowinfo;
-	if (!flowContextLocal)
-	{
-		goto Exit;
-	}
+	RtlSecureZeroMemory(flowContextLocal, sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO));
 
 	flowContextLocal->refCount = 1;
 	// 家族协议
@@ -186,15 +166,7 @@ helper_callout_classFn_flowEstablished(
 	//	goto Exit;
 	//}
 
-	// FlowContext Success --> Insert Callout Callouts_PackInfo_List
-	//sl_lock(&g_flowspinlock, &lh);
-	//InsertHeadList(&g_flowCtxPackte, &flowHead->listEntry);
-	//// 需要指针设置空
-	//flowHead = NULL;
-	//sl_unlock(&lh);
-
-	// 直接push到decv
-	devctrl_pushFlowCtxBuffer(flowHead, sizeof(NF_FLOWESTABLISHED_HEAD), NF_FLOWCTX_SEND);
+	establishedctx_pushflowestablishedctx(flowContextLocal, sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO));
 	
 	classifyOut->actionType = FWP_ACTION_PERMIT;
 	if (filter->flags & FWPS_FILTER_FLAG_CLEAR_ACTION_RIGHT) 
@@ -203,11 +175,14 @@ helper_callout_classFn_flowEstablished(
 	}
 
 Exit:
-	if (flowHead)
+	if (flowContextLocal)
 	{
-		ExFreeToNPagedLookasideList(&g_flowCtxPacketsLAList, flowHead);
-		flowHead = NULL;
+		sl_lock(&g_callouts_flowspinlock, &lh);
+		ExFreeToNPagedLookasideList(&g_callouts_flowCtxPacketsLAList, flowContextLocal);
+		flowContextLocal = NULL;
+		sl_unlock(&lh);
 	}
+
 	if (!NT_SUCCESS(status))
 	{
 		classifyOut->actionType = FWP_ACTION_BLOCK;
@@ -241,48 +216,37 @@ helper_callout_classFn_mac(
 	_Inout_ FWPS_CLASSIFY_OUT* classifyOut
 )
 {
-	DbgBreakPoint();
-
-	if(!layerData && !flowContext)
-		goto Exit;
-
-	PNF_DATALINK_HEAD pdatalink_info = NULL;
+	PNF_CALLOUT_MAC_INFO pdatalink_info = NULL;
 	KLOCK_QUEUE_HANDLE lh;
 	NTSTATUS status = STATUS_SUCCESS;
+	DbgBreakPoint();
+
+	if (!layerData)
+	{
+		status = STATUS_UNSUCCESSFUL;
+		goto Exit;
+	}
 
 	if (FWPS_LAYER_INBOUND_MAC_FRAME_ETHERNET == inFixedValues->layerId ||
 		FWPS_LAYER_OUTBOUND_MAC_FRAME_ETHERNET == inFixedValues->layerId
 		)
 	{
-		pdatalink_info = (PNF_DATALINK_HEAD)ExAllocateFromNPagedLookasideList(&g_datalinkPacktsList);
+		pdatalink_info = ExAllocateFromNPagedLookasideList(&g_callouts_datalinkPacktsList);
 		if (!pdatalink_info)
 		{
+			status = STATUS_NO_MEMORY;
 			goto Exit;
 		}
-		RtlSecureZeroMemory(pdatalink_info, sizeof(NF_DATALINK_HEAD));
-
-		PNF_FLOWESTABLISHED_HEAD flowctx = (PNF_FLOWESTABLISHED_HEAD)flowContext;
-		if (!flowctx)
-		{
-			DbgPrint(L"flowctx 转换失败 : file - callout.c lines - 263");
-			goto Exit;
-		}
+		
+		RtlSecureZeroMemory(pdatalink_info, sizeof(PNF_CALLOUT_MAC_INFO));
 
 		/*
 			Mac Buffer Save
 		*/
-		pdatalink_info->macBuffer.code = 1;
+		pdatalink_info->code = 1;
 
 		// push_data to datalink --> devctrl --> read I/O complate to r3
-		datalinkctx_pushdata(pdatalink_info, sizeof(NF_DATALINK_HEAD));
-
-		if (pdatalink_info)
-		{
-			sl_lock(&g_datalinkspinlock, &lh);
-			ExFreeToNPagedLookasideList(&g_datalinkPacktsList, pdatalink_info);
-			sl_unlock(&lh);
-			pdatalink_info = NULL;
-		}
+		datalinkctx_pushdata(pdatalink_info, sizeof(PNF_CALLOUT_MAC_INFO));
 	}
 
 	classifyOut->actionType = FWP_ACTION_PERMIT;
@@ -290,13 +254,24 @@ helper_callout_classFn_mac(
 	{
 		classifyOut->flags &= ~FWPS_RIGHT_ACTION_WRITE;
 	}
-	return;
 
 Exit:
 
-	classifyOut->actionType = FWP_ACTION_BLOCK;
-	classifyOut->flags |= FWPS_CLASSIFY_OUT_FLAG_ABSORB;
-	classifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+	if (pdatalink_info)
+	{
+		sl_lock(&g_callouts_datalinkspinlock, &lh);
+		ExFreeToNPagedLookasideList(&g_callouts_datalinkPacktsList, pdatalink_info);
+		pdatalink_info = NULL;
+		sl_unlock(&lh);
+	}
+
+	if (!NT_SUCCESS(status))
+	{
+		classifyOut->actionType = FWP_ACTION_BLOCK;
+		classifyOut->flags |= FWPS_CLASSIFY_OUT_FLAG_ABSORB;
+		classifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+	}
+
 }
 
 NTSTATUS
@@ -328,38 +303,6 @@ VOID helper_callout_deleteFn_mac(
 /*	=============================================
 				callouts Ctrl
 	============================================= */
-VOID delete_flowContext(void)
-{
-	KLOCK_QUEUE_HANDLE flowListLockHandle;
-	NF_FLOWESTABLISHED_HEAD* flowHead = NULL;
-
-	sl_lock(&g_flowspinlock, &flowListLockHandle);
-	while (!IsListEmpty(&g_flowCtxPackte))
-	{
-		flowHead = RemoveHeadList(&g_flowCtxPackte);
-		sl_unlock(&flowListLockHandle);
-
-		// release flowctx 关联才需要释放
-		if (flowHead != NULL)
-		{	
-			// flowContext->deleted = TRUE;
-			FwpsFlowRemoveContext(
-				flowHead->flowinfo.flowId,
-				flowHead->flowinfo.layerId,
-				flowHead->flowinfo.calloutId
-			);
-
-			ExFreeToNPagedLookasideList(&g_flowCtxPacketsLAList, flowHead);
-			flowHead = NULL;
-
-		}
-		sl_lock(&g_flowspinlock, &flowListLockHandle);
-	}
-
-	ExDeleteNPagedLookasideList(&g_flowCtxPacketsLAList);
-	sl_unlock(&flowListLockHandle);
-}
-
 NTSTATUS
 helper_callout_registerCallout(
 	IN OUT void* deviceObject,
@@ -517,7 +460,7 @@ NTSTATUS callout_addDataLinkMacFilter(
 			DataLink Layer
 		*/
 		filterConditions[couts].conditionValue.type = FWP_UINT16;
-		filterConditions[couts].conditionValue.uint8 = NDIS_ETH_TYPE_IPV4;
+		filterConditions[couts].conditionValue.uint8 = NDIS_ETH_TYPE_ARP; // NDIS_ETH_TYPE_IPV4
 		filterConditions[couts].fieldKey = FWPM_CONDITION_ETHER_TYPE;
 		filterConditions[couts].matchType = FWP_MATCH_EQUAL;
 		couts++;
@@ -736,27 +679,25 @@ BOOLEAN callout_init(
 	ExUuidCreate(&g_sublayerGuid);
 
 	// Init FlowEstablished 
-	InitializeListHead(&g_flowCtxPackte);
-	KeInitializeSpinLock(&g_flowspinlock);
+	KeInitializeSpinLock(&g_callouts_flowspinlock);
 	ExInitializeNPagedLookasideList(
-		&g_flowCtxPacketsLAList,
+		&g_callouts_flowCtxPacketsLAList,
 		NULL,
 		NULL,
 		0,
-		sizeof(NF_FLOWESTABLISHED_HEAD),
+		sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO),
 		'FLHD',
 		0
 	);
 
 	// Init DataLink
-	InitializeListHead(&g_datalinkCtxPackte);
-	KeInitializeSpinLock(&g_datalinkspinlock);
+	KeInitializeSpinLock(&g_callouts_datalinkspinlock);
 	ExInitializeNPagedLookasideList(
-		&g_datalinkPacktsList,
+		&g_callouts_datalinkPacktsList,
 		NULL,
 		NULL,
 		0,
-		sizeof(NF_DATALINK_HEAD),
+		sizeof(NF_CALLOUT_MAC_INFO),
 		'FLHD',
 		0
 	);
@@ -811,46 +752,14 @@ BOOLEAN callout_init(
 
 VOID callout_free()
 {
-	PNF_FLOWESTABLISHED_HEAD	pflowCtx = NULL;
-	PNF_DATALINK_HEAD			pDatalinkCtx = NULL;
-	KLOCK_QUEUE_HANDLE lh;
+	PNF_CALLOUT_FLOWESTABLISHED_INFO	pcalloutsflowCtx = NULL;
+	PNF_CALLOUT_MAC_INFO				pcalloutsDatalinkCtx = NULL;
 
 	// clean flow - 没有做关联不需要释放
 	// delete_flowContext();
 
-	// clean FlowCxt_List
-	sl_lock(&g_flowspinlock, &lh);
-	while (!IsListEmpty(&g_flowCtxPackte))
-	{
-		pflowCtx = (PNF_FLOWESTABLISHED_HEAD)RemoveHeadList(&g_flowCtxPackte);
-		sl_unlock(&lh);
-
-		// 检测是否已经被释放过 - 防止双重释放
-		if (pflowCtx != NULL) {
-			ExFreeToNPagedLookasideList(&g_flowCtxPacketsLAList, pflowCtx);
-			pflowCtx = NULL;
-		}
-		sl_lock(&g_flowspinlock, &lh);
-	}
-	sl_unlock(&lh);
-	ExDeleteNPagedLookasideList(&g_flowCtxPacketsLAList);
-
-	// clean DataLinkCxt_List
-	sl_lock(&g_datalinkspinlock, &lh);
-	while (!IsListEmpty(&g_datalinkCtxPackte))
-	{
-		pDatalinkCtx = (PNF_DATALINK_HEAD)RemoveHeadList(&g_datalinkCtxPackte);
-		sl_unlock(&lh);
-		
-		if (pflowCtx != NULL) {
-			ExFreeToNPagedLookasideList(&g_datalinkCtxPackte, pDatalinkCtx);
-			pDatalinkCtx = NULL;
-		}
-
-		sl_lock(&g_datalinkspinlock, &lh);
-	}
-	sl_unlock(&lh);
-	ExDeleteNPagedLookasideList(&g_datalinkCtxPackte);
+	ExDeleteNPagedLookasideList(&g_callouts_flowCtxPacketsLAList);
+	ExDeleteNPagedLookasideList(&g_callouts_datalinkPacktsList);
 
 	// clean guid
 	// FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_flow_established_v4);

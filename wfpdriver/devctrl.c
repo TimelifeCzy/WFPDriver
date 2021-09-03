@@ -4,6 +4,7 @@
 #include "public.h"
 #include "devctrl.h"
 #include "datalinkctx.h"
+#include "establishedctx.h"
 
 typedef struct _SHARED_MEMORY
 {
@@ -314,6 +315,72 @@ NTSTATUS devtrl_popDataLinkData(UINT64* pOffset)
 	return STATUS_SUCCESS;
 }
 
+NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	PNF_FLOWESTABLISHED_DATA pestablishedbuf = NULL;
+	PNF_FLOWESTABLISHED_BUFFER pEntry = NULL;
+	KLOCK_QUEUE_HANDLE lh;
+	PNF_DATA	pData;
+	UINT64		dataSize = 0;
+	ULONG		pPacketlens = 0;
+
+	pestablishedbuf = establishedctx_get();
+	if (!pestablishedbuf)
+		return STATUS_UNSUCCESSFUL;
+
+	sl_lock(&g_sIolock, &lh);
+	do {
+
+		if (IsListEmpty(&pestablishedbuf->pendedPackets))
+			break;
+
+		pEntry = RemoveHeadList(&pestablishedbuf->pendedPackets);
+		dataSize = g_inBuf.bufferLength - *pOffset;
+		if ((g_inBuf.bufferLength - *pOffset) < dataSize)
+		{
+			status = STATUS_NO_MEMORY;
+			break;
+		}
+
+		pPacketlens = pEntry->dataLength;
+		if (!pPacketlens)
+		{
+			return STATUS_NO_MEMORY;
+		}
+		dataSize = sizeof(NF_DATA) - 1 + pPacketlens;
+
+		pData = (PNF_DATA)((char*)g_inBuf.kernelVa + *pOffset);
+
+		pData->code = NF_FLOWCTX_SEND;
+		pData->id = 0;
+
+		if (pEntry->dataBuffer != NULL) {
+			memcpy(pData->buffer, &pEntry->dataBuffer, pEntry->dataLength);
+		}
+
+		*pOffset += dataSize;
+
+	} while (FALSE);
+
+	sl_unlock(&lh);
+
+	if (pEntry)
+	{
+		if (NT_SUCCESS(status))
+		{
+			 establishedctx_packfree(pEntry);
+		}
+		else
+		{
+			sl_lock(&pestablishedbuf->lock, &lh);
+			InsertHeadList(&pestablishedbuf->pendedPackets, &pEntry->pEntry);
+			sl_unlock(&lh);
+		}
+	}
+	return STATUS_SUCCESS;
+}
+
 UINT64 devctrl_fillBuffer()
 {
 	PNF_QUEUE_ENTRY	pEntry;
@@ -338,6 +405,7 @@ UINT64 devctrl_fillBuffer()
 		case NF_FLOWCTX_SEND:
 		{
 			// pop flowctx data
+			status = devtrl_popFlowestablishedData(&offset);
 		}
 		break;
 		default:
