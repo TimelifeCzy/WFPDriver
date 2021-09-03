@@ -9,7 +9,7 @@
 	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_NEITHER, FILE_ANY_ACCESS)
 #define CTL_DEVCTRL_STOP_MONITOR \
 	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_NEITHER, FILE_ANY_ACCESS)
-#define CTL_DEVCTRL_UNINSTALL_MONITOR \
+#define CTL_DEVCTRL_OPEN_SHAREMEM \
 	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x803, METHOD_NEITHER, FILE_ANY_ACCESS)
 
 static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter);
@@ -84,7 +84,6 @@ void DevctrlIoct::devctrl_clean()
 {
 	if (m_devhandler)
 	{
-		this->devctrl_sendioct(CTL_DEVCTRL_UNINSTALL_MONITOR);
 		CloseHandle(m_devhandler);
 		m_devhandler = NULL;
 	}

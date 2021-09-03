@@ -40,6 +40,8 @@ static UINT32	g_calloutId_outbound_mac_native;
 static GUID		g_sublayerGuid;
 static HANDLE	g_engineHandle = NULL;
 
+DWORD g_monitorflag = 0;
+
 /*
 * Callouts Buffer - Established Layer
 */
@@ -459,11 +461,11 @@ NTSTATUS callout_addDataLinkMacFilter(
 		/*
 			DataLink Layer
 		*/
-		filterConditions[couts].conditionValue.type = FWP_UINT16;
-		filterConditions[couts].conditionValue.uint8 = NDIS_ETH_TYPE_ARP; // NDIS_ETH_TYPE_IPV4
-		filterConditions[couts].fieldKey = FWPM_CONDITION_ETHER_TYPE;
-		filterConditions[couts].matchType = FWP_MATCH_EQUAL;
-		couts++;
+		//filterConditions[couts].conditionValue.type = FWP_UINT16;
+		//filterConditions[couts].conditionValue.uint8 = NDIS_ETH_TYPE_ARP; // NDIS_ETH_TYPE_IPV4
+		//filterConditions[couts].fieldKey = FWPM_CONDITION_ETHER_TYPE;
+		//filterConditions[couts].matchType = FWP_MATCH_EQUAL;
+		//couts++;
 
 		//filterConditions[couts].conditionValue.type = FWP_UINT16;
 		//filterConditions[couts].conditionValue.uint8 = NDIS_ETH_TYPE_IPV6;
@@ -471,7 +473,7 @@ NTSTATUS callout_addDataLinkMacFilter(
 		//filterConditions[couts].matchType = FWP_MATCH_EQUAL;
 		//couts++;
 		
-		fwpfilter.filterCondition = filterConditions;
+		fwpfilter.filterCondition = NULL;
 		fwpfilter.numFilterConditions = couts;
 
 		status = FwpmFilterAdd(g_engineHandle, &fwpfilter, NULL, NULL);

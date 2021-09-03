@@ -6,12 +6,15 @@
 #include "datalinkctx.h"
 #include "establishedctx.h"
 
+#define NF_TCP_PACKET_BUF_SIZE 8192
+#define NF_UDP_PACKET_BUF_SIZE 2 * 65536
+
 typedef struct _SHARED_MEMORY
 {
 	PMDL					mdl;
 	PVOID					userVa;
 	PVOID					kernelVa;
-	UINT64		bufferLength;
+	UINT64					bufferLength;
 } SHARED_MEMORY, * PSHARED_MEMORY;
 
 static LIST_ENTRY					g_IoQueryHead;
@@ -48,6 +51,307 @@ NTSTATUS devctrl_create(PIRP irp, PIO_STACK_LOCATION irpSp)
 	return status;
 }
 
+void devctrl_freeSharedMemory(PSHARED_MEMORY pSharedMemory)
+{
+	if (pSharedMemory->mdl)
+	{
+		__try
+		{
+			if (pSharedMemory->userVa)
+			{
+				MmUnmapLockedPages(pSharedMemory->userVa, pSharedMemory->mdl);
+			}
+			if (pSharedMemory->kernelVa)
+			{
+				MmUnmapLockedPages(pSharedMemory->kernelVa, pSharedMemory->mdl);
+			}
+		}
+		__except (EXCEPTION_EXECUTE_HANDLER)
+		{
+		}
+
+		MmFreePagesFromMdl(pSharedMemory->mdl);
+		IoFreeMdl(pSharedMemory->mdl);
+
+		memset(pSharedMemory, 0, sizeof(SHARED_MEMORY));
+	}
+}
+
+NTSTATUS devctrl_createSharedMemory(PSHARED_MEMORY pSharedMemory, UINT64 len)
+{
+	PMDL  mdl;
+	PVOID userVa = NULL;
+	PVOID kernelVa = NULL;
+	PHYSICAL_ADDRESS lowAddress;
+	PHYSICAL_ADDRESS highAddress;
+
+	memset(pSharedMemory, 0, sizeof(SHARED_MEMORY));
+
+	lowAddress.QuadPart = 0;
+	highAddress.QuadPart = 0xFFFFFFFFFFFFFFFF;
+
+	mdl = MmAllocatePagesForMdl(lowAddress, highAddress, lowAddress, (SIZE_T)len);
+	if (!mdl)
+	{
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
+
+	__try
+	{
+		kernelVa = MmGetSystemAddressForMdlSafe(mdl, HighPagePriority);
+		if (!kernelVa)
+		{
+			MmFreePagesFromMdl(mdl);
+			IoFreeMdl(mdl);
+			return STATUS_INSUFFICIENT_RESOURCES;
+		}
+
+		//
+		// The preferred way to map the buffer into user space
+		//
+		userVa = MmMapLockedPagesSpecifyCache(mdl,          // MDL
+			UserMode,     // Mode
+			MmCached,     // Caching
+			NULL,         // Address
+			FALSE,        // Bugcheck?
+			HighPagePriority); // Priority
+		if (!userVa)
+		{
+			MmUnmapLockedPages(kernelVa, mdl);
+			MmFreePagesFromMdl(mdl);
+			IoFreeMdl(mdl);
+			return STATUS_INSUFFICIENT_RESOURCES;
+		}
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+	}
+
+	//
+	// If we get NULL back, the request didn't work.
+	// I'm thinkin' that's better than a bug check anyday.
+	//
+	if (!userVa || !kernelVa)
+	{
+		if (userVa)
+		{
+			MmUnmapLockedPages(userVa, mdl);
+		}
+		if (kernelVa)
+		{
+			MmUnmapLockedPages(kernelVa, mdl);
+		}
+		MmFreePagesFromMdl(mdl);
+		IoFreeMdl(mdl);
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
+
+	//
+	// Return the allocated pointers
+	//
+	pSharedMemory->mdl = mdl;
+	pSharedMemory->userVa = userVa;
+	pSharedMemory->kernelVa = kernelVa;
+	pSharedMemory->bufferLength = MmGetMdlByteCount(mdl);
+
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS devctrl_open(PIRP irp, PIO_STACK_LOCATION irpSp)
+{
+	PVOID ioBuffer = irp->AssociatedIrp.SystemBuffer;
+	ULONG outputBufferLength = irpSp->Parameters.DeviceIoControl.OutputBufferLength;
+
+	if (ioBuffer && (outputBufferLength >= sizeof(NF_BUFFERS)))
+	{
+		NTSTATUS 	status;
+
+		for (;;)
+		{
+			if (!g_inBuf.mdl)
+			{
+				status = devctrl_createSharedMemory(&g_inBuf, NF_UDP_PACKET_BUF_SIZE * 50);
+				if (!NT_SUCCESS(status))
+				{
+					break;
+				}
+			}
+
+			if (!g_outBuf.mdl)
+			{
+				status = devctrl_createSharedMemory(&g_outBuf, NF_UDP_PACKET_BUF_SIZE * 2);
+				if (!NT_SUCCESS(status))
+				{
+					break;
+				}
+			}
+
+			status = STATUS_SUCCESS;
+
+			break;
+		}
+
+		if (!NT_SUCCESS(status))
+		{
+			devctrl_freeSharedMemory(&g_inBuf);
+			devctrl_freeSharedMemory(&g_outBuf);
+		}
+		else
+		{
+			PNF_BUFFERS pBuffers = (PNF_BUFFERS)ioBuffer;
+
+			pBuffers->inBuf = (UINT64)g_inBuf.userVa;
+			pBuffers->inBufLen = g_inBuf.bufferLength;
+			pBuffers->outBuf = (UINT64)g_outBuf.userVa;
+			pBuffers->outBufLen = g_outBuf.bufferLength;
+
+			udpctx_postCreateEvents();
+
+			irp->IoStatus.Status = STATUS_SUCCESS;
+			irp->IoStatus.Information = sizeof(NF_BUFFERS);
+			IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+			return STATUS_SUCCESS;
+		}
+	}
+
+	irp->IoStatus.Status = STATUS_UNSUCCESSFUL;
+	irp->IoStatus.Information = 0;
+	IoCompleteRequest(irp, IO_NO_INCREMENT);
+	return STATUS_UNSUCCESSFUL;
+}
+
+VOID devctrl_cancelRead(IN PDEVICE_OBJECT deviceObject, IN PIRP irp)
+{
+	KLOCK_QUEUE_HANDLE lh;
+
+	UNREFERENCED_PARAMETER(deviceObject);
+
+	IoReleaseCancelSpinLock(irp->CancelIrql);
+
+	sl_lock(&g_sIolock, &lh);
+
+	RemoveEntryList(&irp->Tail.Overlay.ListEntry);
+
+	sl_unlock(&lh);
+
+	irp->IoStatus.Status = STATUS_CANCELLED;
+	irp->IoStatus.Information = 0;
+	IoCompleteRequest(irp, IO_NO_INCREMENT);
+}
+
+NTSTATUS devctrl_read(PIRP irp, PIO_STACK_LOCATION irpSp)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	KLOCK_QUEUE_HANDLE lh;
+
+	do
+	{
+		if (irp->MdlAddress == NULL)
+		{
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
+
+		if (MmGetSystemAddressForMdl(irp->MdlAddress, NormalPagePriority) == NULL ||
+			irpSp->Parameters.Read.Length < sizeof(NF_READ_RESULT))
+		{
+			status = STATUS_INSUFFICIENT_RESOURCES;
+			break;
+		}
+
+		sl_lock(&g_sIolock, &lh);
+
+		IoSetCancelRoutine(irp, devctrl_cancelRead);
+
+		if (irp->Cancel &&
+			IoSetCancelRoutine(irp, NULL))
+		{
+			status = STATUS_CANCELLED;
+		}
+		else
+		{
+			IoMarkIrpPending(irp);
+
+			// Insert Pend -- Kevent handler
+			InsertTailList(&g_pendedIoRequests, &irp->Tail.Overlay.ListEntry);
+
+			status = STATUS_PENDING;
+		}
+
+		sl_unlock(&lh);
+		KeSetEvent(&g_ioThreadEvent, IO_NO_INCREMENT, FALSE);
+		break;
+	} while (FALSE);
+
+	if (status != STATUS_PENDING)
+	{
+		irp->IoStatus.Information = 0;
+		irp->IoStatus.Status = status;
+		IoCompleteRequest(irp, IO_NO_INCREMENT);
+	}
+
+	return status;
+}
+
+ULONG devctrl_processRequest(ULONG bufferSize)
+{
+	PNF_DATA pData = (PNF_DATA)g_outBuf.kernelVa;
+
+	if (bufferSize < (sizeof(NF_DATA) + pData->bufferSize - 1))
+	{
+		return 0;
+	}
+
+	switch (pData->code)
+	{
+	default:
+		break;
+	}
+	return 0;
+}
+
+NTSTATUS devctrl_write(PIRP irp, PIO_STACK_LOCATION irpSp)
+{
+	PNF_READ_RESULT pRes;
+	ULONG bufferLength = irpSp->Parameters.Write.Length;
+
+	pRes = (PNF_READ_RESULT)MmGetSystemAddressForMdlSafe(irp->MdlAddress, NormalPagePriority);
+	if (!pRes || bufferLength < sizeof(NF_READ_RESULT))
+	{
+		irp->IoStatus.Status = STATUS_INSUFFICIENT_RESOURCES;
+		IoCompleteRequest(irp, IO_NO_INCREMENT);
+		KdPrint((DPREFIX"devctrl_write invalid irp\n"));
+		return STATUS_INSUFFICIENT_RESOURCES;
+	}
+
+	irp->IoStatus.Information = devctrl_processRequest((ULONG)pRes->length);
+	irp->IoStatus.Status = STATUS_SUCCESS;
+	IoCompleteRequest(irp, IO_NO_INCREMENT);
+	return STATUS_SUCCESS;
+}
+
+NTSTATUS devctrl_close(PIRP irp, PIO_STACK_LOCATION irpSp)
+{
+	KLOCK_QUEUE_HANDLE lh;
+	NTSTATUS 	status = STATUS_SUCCESS;
+	HANDLE		pid = PsGetCurrentProcessId();
+
+	UNREFERENCED_PARAMETER(irpSp);
+
+	irp->IoStatus.Information = 0;
+	irp->IoStatus.Status = status;
+	IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+	return status;
+}
+
+VOID devctrl_setmonitor(int flag)
+{
+	// ÉèÖÃ´òÓ¡±êÇ©
+	g_monitorflag = flag;
+}
+
 NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp)
 {
 	PIO_STACK_LOCATION irpSp;
@@ -64,14 +368,37 @@ NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp)
 	case IRP_MJ_CREATE:
 		return devctrl_create(irp, irpSp);
 
-	//case IRP_MJ_READ:
-	//	return devctrl_read(irp, irpSp);
+	case IRP_MJ_READ:
+		return devctrl_read(irp, irpSp);
 
-	//case IRP_MJ_WRITE:
-	//	return devctrl_write(irp, irpSp);
+	case IRP_MJ_WRITE:
+		return devctrl_write(irp, irpSp);
 
-	//case IRP_MJ_CLOSE:
-	//	return devctrl_close(irp, irpSp);
+	case IRP_MJ_CLOSE:
+		return devctrl_close(irp, irpSp);
+
+	case IRP_MJ_DEVICE_CONTROL:
+		switch (irpSp->Parameters.DeviceIoControl.IoControlCode)
+		{
+		case CTL_DEVCTRL_ENABLE_MONITOR:
+		{
+			devctrl_setmonitor(1);
+		} 
+		break;
+		case CTL_DEVCTRL_STOP_MONITOR:
+		{
+			devctrl_setmonitor(0);
+		} 
+		break;
+		case CTL_DEVCTRL_OPEN_SHAREMEM:
+		{
+			devctrl_open(irp, irpSp);
+		}
+		break;
+		default:
+			break;
+		}
+		return decvtrl_ioct(irp, irpSp);
 	}
 
 	irp->IoStatus.Status = STATUS_SUCCESS;
@@ -85,11 +412,13 @@ NTSTATUS devctrl_init()
 {
 	HANDLE threadHandle;
 	NTSTATUS status = STATUS_SUCCESS;
+
 	// Init List
+	InitializeListHead(&g_pendedIoRequests);
 	InitializeListHead(&g_IoQueryHead);
 	ExInitializeNPagedLookasideList(&g_IoQueryList, NULL, NULL, 0, sizeof(NF_QUEUE_ENTRY), 'NFQU', 0);
 	KeInitializeSpinLock(&g_sIolock);
-
+	
 	// Init I/O handler Thread
 	KeInitializeEvent(
 		&g_ioThreadEvent,
@@ -162,6 +491,9 @@ NTSTATUS devctrl_free()
 		ObDereferenceObject(g_ioThreadObject);
 		g_ioThreadObject = NULL;
 	}
+
+	devctrl_freeSharedMemory(&g_inBuf);
+	devctrl_freeSharedMemory(&g_outBuf);
 
 	return STATUS_SUCCESS;
 }
@@ -454,34 +786,21 @@ void devctrl_ioThread(
 
 		sl_lock(&g_sIolock, &lh);
 
-		if (!IsListEmpty(&g_IoQueryHead))
+		if (!IsListEmpty(&g_IoQueryHead) && !IsListEmpty(&g_pendedIoRequests))
 		{
 
-			//
-			//  Get the first pended Read IRP
-			//
 			pIrpEntry = g_pendedIoRequests.Flink;
 			while (pIrpEntry != &g_pendedIoRequests)
 			{
 				irp = CONTAINING_RECORD(pIrpEntry, IRP, Tail.Overlay.ListEntry);
-
-				//
-				//  Check to see if it is being cancelled.
-				//
 				if (IoSetCancelRoutine(irp, NULL))
 				{
-					//
-					//  It isn't being cancelled, and can't be cancelled henceforth.
-					//
 					RemoveEntryList(pIrpEntry);
 					foundPendingIrp = TRUE;
 					break;
 				}
 				else
 				{
-					//
-					//  The IRP is being cancelled; let the cancel routine handle it.
-					//
 					KdPrint((DPREFIX"devctrl_serviceReads: skipping cancelled IRP\n"));
 					pIrpEntry = pIrpEntry->Flink;
 				}
@@ -493,7 +812,6 @@ void devctrl_ioThread(
 			{
 				return;
 			}
-
 
 			pResult = (PNF_READ_RESULT)MmGetSystemAddressForMdlSafe(irp->MdlAddress, HighPagePriority);
 			if (!pResult)

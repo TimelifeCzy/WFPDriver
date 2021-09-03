@@ -64,6 +64,7 @@
 #define MAX_PROCESS_NAME_LEN 64
 
 extern DWORD g_dwLogLevel;
+extern DWORD g_monitorflag;
 
 #define LogOutput(t,...) if (g_dwLogLevel & t) DbgPrint(## __VA_ARGS__)
 #define LogOutputEx(b,t,...) if ((!(g_dwLogLevel & 0x1000000) || (b)) && (g_dwLogLevel & t)) DbgPrint(## __VA_ARGS__)
@@ -99,5 +100,13 @@ typedef UNALIGNED struct _NF_READ_RESULT
 {
 	unsigned __int64 length;
 } NF_READ_RESULT, * PNF_READ_RESULT;
+
+typedef UNALIGNED struct _NF_BUFFERS
+{
+	unsigned __int64 inBuf;
+	unsigned __int64 inBufLen;
+	unsigned __int64 outBuf;
+	unsigned __int64 outBufLen;
+} NF_BUFFERS, * PNF_BUFFERS;
 
 #endif
