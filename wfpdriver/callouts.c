@@ -232,7 +232,6 @@ helper_callout_classFn_mac(
 	PNF_CALLOUT_MAC_INFO pdatalink_info = NULL;
 	KLOCK_QUEUE_HANDLE lh;
 	NTSTATUS status = STATUS_SUCCESS;
-	DbgBreakPoint();
 
 	// 关闭监控的时候，不做任何操作
 	if (g_monitorflag == 0)
@@ -483,19 +482,19 @@ NTSTATUS callout_addDataLinkMacFilter(
 		/*
 			DataLink Layer
 		*/
-		//filterConditions[couts].conditionValue.type = FWP_UINT16;
-		//filterConditions[couts].conditionValue.uint8 = NDIS_ETH_TYPE_ARP; // NDIS_ETH_TYPE_IPV4
-		//filterConditions[couts].fieldKey = FWPM_CONDITION_ETHER_TYPE;
-		//filterConditions[couts].matchType = FWP_MATCH_EQUAL;
-		//couts++;
+		filterConditions[couts].conditionValue.type = FWP_UINT16;
+		filterConditions[couts].conditionValue.uint16 = NDIS_ETH_TYPE_IPV4;
+		filterConditions[couts].fieldKey = FWPM_CONDITION_ETHER_TYPE;
+		filterConditions[couts].matchType = FWP_MATCH_EQUAL;
+		couts++;
 
-		//filterConditions[couts].conditionValue.type = FWP_UINT16;
-		//filterConditions[couts].conditionValue.uint8 = NDIS_ETH_TYPE_IPV6;
-		//filterConditions[couts].fieldKey = FWPM_CONDITION_ETHER_TYPE;
-		//filterConditions[couts].matchType = FWP_MATCH_EQUAL;
-		//couts++;
+		filterConditions[couts].conditionValue.type = FWP_UINT16;
+		filterConditions[couts].conditionValue.uint16 = NDIS_ETH_TYPE_IPV6;
+		filterConditions[couts].fieldKey = FWPM_CONDITION_ETHER_TYPE;
+		filterConditions[couts].matchType = FWP_MATCH_EQUAL;
+		couts++;
 		
-		fwpfilter.filterCondition = NULL;
+		fwpfilter.filterCondition = filterConditions;
 		fwpfilter.numFilterConditions = couts;
 
 		status = FwpmFilterAdd(g_engineHandle, &fwpfilter, NULL, NULL);
@@ -540,13 +539,21 @@ callouts_addFilters()
 		if (!NT_SUCCESS(status))
 			break;
 
-		//status = callout_addFlowEstablishedFilter(&g_calloutGuid_flow_established_v4, &FWPM_LAYER_ALE_FLOW_ESTABLISHED_V4, &subLayer);
-		//if (!NT_SUCCESS(status))
-		//	break;
+		status = callout_addFlowEstablishedFilter(
+			&g_calloutGuid_flow_established_v4,
+			&FWPM_LAYER_ALE_FLOW_ESTABLISHED_V4,
+			&subLayer
+		);
+		if (!NT_SUCCESS(status))
+			break;
 
-		//status = callout_addFlowEstablishedFilter(&g_calloutGuid_flow_established_v6, &FWPM_LAYER_ALE_FLOW_ESTABLISHED_V6, &subLayer);
-		//if (!NT_SUCCESS(status))
-		//	break;
+		status = callout_addFlowEstablishedFilter(
+			&g_calloutGuid_flow_established_v6,
+			&FWPM_LAYER_ALE_FLOW_ESTABLISHED_V6,
+			&subLayer
+		);
+		if (!NT_SUCCESS(status))
+			break;
 		
 		status = callout_addDataLinkMacFilter(
 			&g_calloutGuid_inbound_mac_etherent,
@@ -608,27 +615,27 @@ callouts_registerCallouts(
 
 	do
 	{
-		//// FWPM_LAYER_ALE_FLOW_ESTABLISHED_V4
-		//status = helper_callout_registerCallout(
-		//	deviceObject,
-		//	helper_callout_classFn_flowEstablished,
-		//	helper_callout_notifyFn_flowEstablished,
-		//	NULL,
-		//	&g_calloutGuid_flow_established_v4,
-		//	0,
-		//	g_calloutId_flow_established_v4
-		//);
+		// FWPM_LAYER_ALE_FLOW_ESTABLISHED_V4
+		status = helper_callout_registerCallout(
+			deviceObject,
+			helper_callout_classFn_flowEstablished,
+			helper_callout_notifyFn_flowEstablished,
+			NULL,
+			&g_calloutGuid_flow_established_v4,
+			0,
+			g_calloutId_flow_established_v4
+		);
 
-		//// FWPM_LAYER_ALE_FLOW_ESTABLISHED_V6
-		//status = helper_callout_registerCallout(
-		//	deviceObject,
-		//	helper_callout_classFn_flowEstablished,
-		//	helper_callout_notifyFn_flowEstablished,
-		//	NULL,
-		//	&g_calloutGuid_flow_established_v6,
-		//	0,
-		//	g_calloutId_flow_established_v6
-		//);
+		// FWPM_LAYER_ALE_FLOW_ESTABLISHED_V6
+		status = helper_callout_registerCallout(
+			deviceObject,
+			helper_callout_classFn_flowEstablished,
+			helper_callout_notifyFn_flowEstablished,
+			NULL,
+			&g_calloutGuid_flow_established_v6,
+			0,
+			g_calloutId_flow_established_v6
+		);
 
 		// FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET
 		status = helper_callout_registerCallout(

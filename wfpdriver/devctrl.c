@@ -205,8 +205,6 @@ NTSTATUS devctrl_open(PIRP irp, PIO_STACK_LOCATION irpSp)
 			pBuffers->outBuf = (UINT64)g_outBuf.userVa;
 			pBuffers->outBufLen = g_outBuf.bufferLength;
 
-			udpctx_postCreateEvents();
-
 			irp->IoStatus.Status = STATUS_SUCCESS;
 			irp->IoStatus.Information = sizeof(NF_BUFFERS);
 			IoCompleteRequest(irp, IO_NO_INCREMENT);
@@ -398,7 +396,6 @@ NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp)
 		default:
 			break;
 		}
-		return decvtrl_ioct(irp, irpSp);
 	}
 
 	irp->IoStatus.Status = STATUS_SUCCESS;

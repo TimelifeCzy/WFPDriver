@@ -6,14 +6,33 @@
 #include <Windows.h>
 #include <iostream>
 #include "devctrl.h"
+#include "nfevents.h"
+
 using namespace std;
 
 const char devSyLinkName[] = "\\??\\WFPDark";
+
+class EventHandler : public NF_EventHandler
+{
+	// 捕获 TCP UDP 已建立连接数据
+	void establishedPacket(const char* buf, int len) override
+	{
+
+	}
+
+	// 捕获 MAC 链路层数据
+	void datalinkPacket(const char* buf, int len) override
+	{
+	
+	}
+
+};
 
 int main(void)
 {
 	int status = 0;
 	DevctrlIoct devobj;
+	EventHandler packtebuff;
 
 	// Init devctrl
 	status = devobj.devctrl_init();
@@ -48,6 +67,9 @@ int main(void)
 			cout << "devctrl_workthread error: main.c --> lines: 46" << endl;
 			break;
 		}
+
+		// Enable Event
+		devobj.nf_setWfpCheckEventHandler((PVOID)&packtebuff);
 
 		// Wait Thread Exit
 		devobj.devctrl_waitSingeObject();

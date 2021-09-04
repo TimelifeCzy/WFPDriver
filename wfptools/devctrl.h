@@ -13,6 +13,7 @@ public:
 	int devctrl_waitSingeObject();
 	void devctrl_clean();
 	int devctrl_InitshareMem();
+	void nf_setWfpCheckEventHandler(PVOID64 pHandler);
 
 private:
 	HANDLE m_devhandler;
@@ -22,6 +23,8 @@ private:
 	// ·¢ËÍ¿ØÖÆÂë
 	int devctrl_sendioct(const int ioctcode);
 	int devctrl_writeio();
+	PVOID get_eventhandler();
+
 };
 
 #endif // !_DEVCTRL_H
