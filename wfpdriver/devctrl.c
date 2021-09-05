@@ -5,6 +5,7 @@
 #include "devctrl.h"
 #include "datalinkctx.h"
 #include "establishedctx.h"
+#include "HlprDriverAlpc.h"
 
 #define NF_TCP_PACKET_BUF_SIZE 8192
 #define NF_UDP_PACKET_BUF_SIZE 2 * 65536
@@ -35,6 +36,7 @@ typedef struct _NF_QUEUE_ENTRY
 } NF_QUEUE_ENTRY, * PNF_QUEUE_ENTRY;
 
 void devctrl_ioThread(IN PVOID StartContext);
+void devctrl_AlpcThread(IN PVOID StartContext);
 
 NTSTATUS devctrl_create(PIRP irp, PIO_STACK_LOCATION irpSp)
 {
@@ -243,7 +245,7 @@ VOID devctrl_cancelRead(IN PDEVICE_OBJECT deviceObject, IN PIRP irp)
 	IoCompleteRequest(irp, IO_NO_INCREMENT);
 }
 
-NTSTATUS devctrl_read(PIRP irp, PIO_STACK_LOCATION irpSp)
+NTSTATUS devctrl_read1(PIRP irp, PIO_STACK_LOCATION irpSp)
 {
 	NTSTATUS status = STATUS_SUCCESS;
 	KLOCK_QUEUE_HANDLE lh;
@@ -306,6 +308,21 @@ NTSTATUS devctrl_read(PIRP irp, PIO_STACK_LOCATION irpSp)
 		irp->IoStatus.Status = status;
 		IoCompleteRequest(irp, IO_NO_INCREMENT);
 	}
+
+	return status;
+}
+
+NTSTATUS devctrl_read(PIRP irp, PIO_STACK_LOCATION irpSp)
+{
+	KLOCK_QUEUE_HANDLE lh;
+	NTSTATUS 	status = STATUS_SUCCESS;
+	HANDLE		pid = PsGetCurrentProcessId();
+
+	UNREFERENCED_PARAMETER(irpSp);
+
+	irp->IoStatus.Information = 0;
+	irp->IoStatus.Status = status;
+	IoCompleteRequest(irp, IO_NO_INCREMENT);
 
 	return status;
 }
@@ -390,7 +407,6 @@ NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp)
 
 	case IRP_MJ_READ:
 	{
-		DbgBreakPoint();
 		return devctrl_read(irp, irpSp);
 	}
 
@@ -442,13 +458,23 @@ NTSTATUS devctrl_init()
 		FALSE
 	);
 
+	//status = PsCreateSystemThread(
+	//	&threadHandle,
+	//	THREAD_ALL_ACCESS,
+	//	NULL,
+	//	NULL,
+	//	NULL,
+	//	devctrl_ioThread,
+	//	NULL
+	//);
+
 	status = PsCreateSystemThread(
 		&threadHandle,
 		THREAD_ALL_ACCESS,
 		NULL,
 		NULL,
 		NULL,
-		devctrl_ioThread,
+		devctrl_AlpcThread,
 		NULL
 	);
 
@@ -844,6 +870,194 @@ void devctrl_ioThread(
 			irp->IoStatus.Information = sizeof(NF_READ_RESULT);
 			IoCompleteRequest(irp, IO_NO_INCREMENT);
 		}
+	}
+
+	PsTerminateSystemThread(STATUS_SUCCESS);
+}
+
+void devctrl_AlpcThread(
+	IN PVOID StartContext
+)
+{
+	PIRP                irp = NULL;
+	PLIST_ENTRY         pIrpEntry;
+	BOOLEAN             foundPendingIrp = FALSE;
+	PNF_READ_RESULT		pResult;
+	KLOCK_QUEUE_HANDLE lh;
+	PNF_QUEUE_ENTRY		pEntry;
+
+	PNF_FLOWESTABLISHED_DATA pestablishedbuf = NULL;
+	PNF_FLOWESTABLISHED_BUFFER pEntryFlowestablishedBuffer = NULL;
+	
+	PNF_DATALINK_DATA pdatalinkbuf = NULL;
+	PNF_DATALINK_BUFFER pEntryDataLinkBuffer = NULL;
+
+	PNF_DATA pData = NULL;
+
+	NTSTATUS status = STATUS_SUCCESS;
+
+	int buffer_total_lens = 0;
+
+	for (;;)
+	{
+		KeWaitForSingleObject(
+			&g_ioThreadEvent,
+			Executive,
+			KernelMode,
+			FALSE,
+			NULL
+		);
+
+		if (devctrl_isShutdown())
+		{
+			break;
+		}
+
+		sl_lock(&g_sIolock, &lh);
+
+		if (!IsListEmpty(&g_IoQueryHead))
+		{
+			pEntry = RemoveHeadList(&g_IoQueryHead);
+			sl_unlock(&lh);
+
+			switch (pEntry->code)
+			{
+			case NF_DATALINK_PACKET:
+			{
+				pdatalinkbuf = datalink_get();
+				if (!pdatalinkbuf)
+					continue;
+
+				sl_lock(&g_sIolock, &lh);
+				do {
+
+					if (IsListEmpty(&pdatalinkbuf->pendedPackets))
+						break;
+					buffer_total_lens = sizeof(NF_DATA) + pEntryDataLinkBuffer->dataLength;
+					pData = ExAllocatePoolWithTag(NonPagedPool, buffer_total_lens, 'SESE');
+					if (!pData)
+						break;
+					RtlSecureZeroMemory(pData, sizeof(NF_DATA));
+
+					pEntryDataLinkBuffer = RemoveHeadList(&pdatalinkbuf->pendedPackets);
+
+					pData->code = NF_DATALINK_PACKET;
+					pData->id = 0;
+					pData->bufferSize = pEntryDataLinkBuffer->dataLength;
+
+					if (pEntryDataLinkBuffer->dataBuffer != NULL) {
+						memcpy(pData->buffer, &pEntryDataLinkBuffer->dataBuffer, pEntryDataLinkBuffer->dataLength);
+					}
+				} while (FALSE);
+
+				sl_unlock(&lh);
+
+				if (pEntryDataLinkBuffer)
+				{
+					if (NT_SUCCESS(status))
+					{
+						datalinkctx_packfree(pEntryDataLinkBuffer);
+						pEntryDataLinkBuffer = NULL;
+					}
+					else
+					{
+						sl_lock(&pdatalinkbuf->lock, &lh);
+						InsertHeadList(&pdatalinkbuf->pendedPackets, &pEntryDataLinkBuffer->pEntry);
+						sl_unlock(&lh);
+					}
+				}
+			}
+			break;
+			case NF_FLOWCTX_PACKET:
+			{
+				// pop flowctx data
+				pestablishedbuf = establishedctx_get();
+				if (!pestablishedbuf)
+					continue;
+
+				sl_lock(&g_sIolock, &lh);
+				do {
+
+					if (IsListEmpty(&pestablishedbuf->pendedPackets))
+					{
+						status = STATUS_UNSUCCESSFUL;
+						break;
+					}
+					
+					pEntryFlowestablishedBuffer = RemoveHeadList(&pestablishedbuf->pendedPackets);
+					sl_unlock(&lh);
+
+					buffer_total_lens = sizeof(NF_DATA) + pEntryFlowestablishedBuffer->dataLength;
+					pData = ExAllocatePoolWithTag(NonPagedPool, buffer_total_lens, 'SESE');
+					if (pData == NULL)
+					{
+						status = STATUS_UNSUCCESSFUL;
+						break;
+					}
+					RtlSecureZeroMemory(pData, sizeof(NF_DATA) + pEntryFlowestablishedBuffer->dataLength);
+
+					pData->code = NF_FLOWCTX_PACKET;
+					pData->bufferSize = pEntryFlowestablishedBuffer->dataLength;
+
+					if (pEntryFlowestablishedBuffer->dataBuffer != NULL) {
+						memcpy(pData->buffer, &pEntryFlowestablishedBuffer->dataBuffer, pEntryFlowestablishedBuffer->dataLength);
+					}
+
+				} while (FALSE);
+
+				if (pEntryFlowestablishedBuffer)
+				{
+					if (NT_SUCCESS(status))
+					{
+						establishedctx_packfree(pEntryFlowestablishedBuffer);
+						pEntryFlowestablishedBuffer = NULL;
+					}
+					else
+					{
+						sl_lock(&pdatalinkbuf->lock, &lh);
+						InsertHeadList(&pestablishedbuf->pendedPackets, &pEntryFlowestablishedBuffer->pEntry);
+						sl_unlock(&lh);
+					}
+				}
+			}
+			break;
+			}
+			
+			// Clean Query Io Queue
+			ExFreeToNPagedLookasideList(&g_IoQueryList, pEntry);
+			pEntry = NULL;
+
+			sl_lock(&g_sIolock, &lh);
+		}
+		
+		sl_unlock(&lh);
+
+		// Send Msg to Client(DLL)
+		sl_lock(&g_sIolock, &lh);
+		switch (pData->code)
+		{
+		case NF_DATALINK_PACKET:
+		{
+			AlpcSendDataLinkStructMsg(pData, buffer_total_lens);
+		}
+		break;
+		case NF_FLOWCTX_PACKET:
+		{
+			DbgBreakPoint();
+			AlpcSendflowEstablishedMsg(pData, buffer_total_lens);
+		}
+		break;
+		}
+		sl_unlock(&lh);
+
+		// Clean pData Buffer
+		if (pData)
+		{
+			ExFreePoolWithTag(pData, 'SESE');
+			pData = NULL;
+		}
+
+		buffer_total_lens = 0;
 	}
 
 	PsTerminateSystemThread(STATUS_SUCCESS);

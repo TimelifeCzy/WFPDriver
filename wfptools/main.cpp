@@ -2,11 +2,11 @@
 // @ 2021/9/3
 //  
 //
-
 #include <Windows.h>
 #include <iostream>
 #include "devctrl.h"
 #include "nfevents.h"
+#include "HlprServerAlpc.h"
 
 using namespace std;
 
@@ -32,9 +32,37 @@ int main(void)
 {
 	int status = 0;
 	DevctrlIoct devobj;
-	EventHandler packtebuff;
+	// EventHandler packtebuff;
 
 	OutputDebugString(L"Entry Main");
+
+	// Start devctrl workThread
+	status = devobj.devctrl_Alpcworkthread();
+	if (!status)
+	{
+		cout << "devctrl_workthread error: main.c --> lines: 46" << endl;
+	}
+
+	// 给线程执行机会 - 创建port
+	Sleep(100);
+
+	DWORD whiles = 0;
+	// wait driver Connect
+	while (true)
+	{
+		if (waitDriverConnectAlpcHandle == 100)
+		{
+			break;
+		}
+		if (whiles == 10000)
+		{
+			OutputDebugString(L"Driver Load Timeout");
+		}
+		Sleep(1000);
+		whiles++;
+	}
+
+	OutputDebugString(L"Init Connect Success");
 
 	// Init devctrl
 	status = devobj.devctrl_init();
@@ -55,14 +83,13 @@ int main(void)
 		}
 
 		// Init share Mem
-		status = devobj.devctrl_InitshareMem();
-		if (!status)
-		{
-			cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
-			break;
-		}
-		system("pause");
-
+		//status = devobj.devctrl_InitshareMem();
+		//if (!status)
+		//{
+		//	cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
+		//	break;
+		//}
+		//system("pause");
 
 		// Enable try Network packte Monitor
 		status = devobj.devctrl_OnMonitor();
@@ -71,28 +98,22 @@ int main(void)
 			cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
 			break;
 		}
-		system("pause");
-
-		// Start devctrl workThread
-		status = devobj.devctrl_workthread();
-		if (!status)
-		{
-			cout << "devctrl_workthread error: main.c --> lines: 46" << endl;
-			break;
-		}
-		system("pause");
-
-
+		// system("pause");
 
 		// Enable Event
-		devobj.nf_setWfpCheckEventHandler((PVOID)&packtebuff);
-
-		system("pause");
+		// devobj.nf_setWfpCheckEventHandler((PVOID)&packtebuff);
+		
 		// Wait Thread Exit
-		devobj.devctrl_waitSingeObject();
-		system("pause");
+		// devobj.devctrl_waitSingeObject();
 	} while (false);
-	
+
+	MSG msg;
+	while (GetMessage(&msg, NULL, 0, 0))
+	{
+		TranslateMessage(&msg);
+		DispatchMessage(&msg);
+	}
+
 	// clean
 	devobj.devctrl_clean();
 

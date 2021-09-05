@@ -10,6 +10,7 @@ public:
 	int devctrl_init();
 	int devctrl_opendeviceSylink(const char* devSylinkName);
 	int devctrl_workthread();
+	int devctrl_Alpcworkthread();
 	int devctrl_waitSingeObject();
 	void devctrl_clean();
 	int devctrl_InitshareMem();
@@ -19,6 +20,7 @@ public:
 private:
 	HANDLE m_devhandler;
 	HANDLE m_threadobjhandler;
+	HANDLE m_alpcthreadobjhandler;
 	DWORD  m_dwthreadid;
 
 	// ·¢ËÍ¿ØÖÆÂë

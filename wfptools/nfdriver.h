@@ -4,56 +4,6 @@
 #define NF_TCP_PACKET_BUF_SIZE 8192
 #define NF_UDP_PACKET_BUF_SIZE 2 * 65536
 
-/**
-*	IO data codes
-**/
-typedef enum _NF_DATA_CODE
-{
-	NF_TCP_CONNECTED,	// TCP connection established
-	NF_TCP_CLOSED,		// TCP connection closed
-	NF_TCP_RECEIVE,		// TCP data packet received
-	NF_TCP_SEND,		// TCP data packet sent
-	NF_TCP_CAN_RECEIVE,	// The buffer for TCP receives is empty
-	NF_TCP_CAN_SEND,	// The buffer for TCP sends is empty
-	NF_TCP_REQ_SUSPEND,	// Requests suspending TCP connection
-	NF_TCP_REQ_RESUME,	// Requests resuming TCP connection
-
-	NF_UDP_CREATED,		// UDP socket created
-	NF_UDP_CLOSED,		// UDP socket closed
-	NF_UDP_RECEIVE,		// UDP data packet received
-	NF_UDP_SEND,		// UDP data packet sent
-	NF_UDP_CAN_RECEIVE,	// The buffer for UDP receives is empty
-	NF_UDP_CAN_SEND,	// The buffer for UDP sends is empty
-	NF_UDP_REQ_SUSPEND,	// Requests suspending UDP address
-	NF_UDP_REQ_RESUME,	// Requests resuming UDP address
-
-	NF_REQ_ADD_HEAD_RULE,	// Add a rule to list head
-	NF_REQ_ADD_TAIL_RULE,	// Add a rule to list tail
-	NF_REQ_DELETE_RULES,	// Remove all rules
-
-	NF_TCP_CONNECT_REQUEST,	// Outgoing TCP connect request
-	NF_UDP_CONNECT_REQUEST,	// Outgoing UDP connect request
-
-	NF_TCP_DISABLE_USER_MODE_FILTERING, // Disable indicating TCP packets to user mode for a connection
-	NF_UDP_DISABLE_USER_MODE_FILTERING, // Disable indicating UDP packets to user mode for a socket
-
-	NF_REQ_SET_TCP_OPT,		// Set TCP socket options
-	NF_REQ_IS_PROXY,		// Check if process with specified id is local proxy
-
-	NF_TCP_REINJECT,	// Reinject pended packets
-	NF_TCP_REMOVE_CLOSED,	// Delete TCP context for the closed connection
-	NF_TCP_DEFERRED_DISCONNECT,	// Delete TCP context for the closed connection
-
-	NF_IP_RECEIVE,		// IP data packet received
-	NF_IP_SEND,		// IP data packet sent
-	NF_TCP_RECEIVE_PUSH,	// Push all TCP data packets
-
-	NF_REQ_SET_PROCESS_FILTER_OPTION,
-
-	NF_CALLOUT_LOG,
-
-} NF_DATA_CODE;
-
 typedef enum _NF_DIRECTION
 {
 	NF_D_IN = 1,		// Incoming TCP connection or UDP packet

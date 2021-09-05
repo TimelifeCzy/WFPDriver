@@ -178,8 +178,6 @@ helper_callout_classFn_flowEstablished(
 	//{
 	//	goto Exit;
 	//}
-
-	DbgBreakPoint();
 	establishedctx_pushflowestablishedctx(flowContextLocal, sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO));
 	
 	classifyOut->actionType = FWP_ACTION_PERMIT;
@@ -270,7 +268,6 @@ helper_callout_classFn_mac(
 		pdatalink_info->code = 1;
 
 		// push_data to datalink --> devctrl --> read I/O complate to r3
-		DbgBreakPoint();
 		datalinkctx_pushdata(pdatalink_info, sizeof(PNF_CALLOUT_MAC_INFO));
 	}
 
@@ -555,7 +552,7 @@ callouts_addFilters()
 		);
 		if (!NT_SUCCESS(status))
 			break;
-		
+	/*	
 		status = callout_addDataLinkMacFilter(
 			&g_calloutGuid_inbound_mac_etherent,
 			&FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET,
@@ -573,6 +570,8 @@ callouts_addFilters()
 		);
 		if (!NT_SUCCESS(status))
 			break;
+	*/
+
 
 		//// FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET
 		//status = callout_addDataLinkMacFilter(&g_calloutGuid_inbound_mac_native, &FWPM_LAYER_INBOUND_MAC_FRAME_NATIVE, &subLayer,3);
@@ -638,27 +637,27 @@ callouts_registerCallouts(
 			g_calloutId_flow_established_v6
 		);
 
-		// FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET
-		status = helper_callout_registerCallout(
-			deviceObject,
-			helper_callout_classFn_mac,
-			helper_callout_notifyFn_mac,
-			helper_callout_deleteFn_mac,
-			&g_calloutGuid_inbound_mac_etherent,
-			0,
-			g_calloutId_inbound_mac_etherent
-		);
+		//// FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET
+		//status = helper_callout_registerCallout(
+		//	deviceObject,
+		//	helper_callout_classFn_mac,
+		//	helper_callout_notifyFn_mac,
+		//	helper_callout_deleteFn_mac,
+		//	&g_calloutGuid_inbound_mac_etherent,
+		//	0,
+		//	g_calloutId_inbound_mac_etherent
+		//);
 
-		// FWPM_LAYER_OUTBOUND_MAC_FRAME_ETHERNET
-		status = helper_callout_registerCallout(
-			deviceObject,
-			helper_callout_classFn_mac,
-			helper_callout_notifyFn_mac,
-			helper_callout_deleteFn_mac,
-			&g_calloutGuid_outbound_mac_etherent,
-			0,
-			g_calloutId_outbound_mac_etherent
-		);
+		//// FWPM_LAYER_OUTBOUND_MAC_FRAME_ETHERNET
+		//status = helper_callout_registerCallout(
+		//	deviceObject,
+		//	helper_callout_classFn_mac,
+		//	helper_callout_notifyFn_mac,
+		//	helper_callout_deleteFn_mac,
+		//	&g_calloutGuid_outbound_mac_etherent,
+		//	0,
+		//	g_calloutId_outbound_mac_etherent
+		//);
 
 		//// FWPM_LAYER_INBOUND_MAC_FRAME_NATIVE
 		//status = helper_callout_registerCallout(

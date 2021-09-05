@@ -2,8 +2,9 @@
 #include "driver.h"
 #include "devctrl.h"
 #include "datalinkctx.h"
-#include "flowctl.h"
+#include "establishedctx.h"
 #include "callouts.h"
+#include "HlprDriverAlpc.h"
 
 #include <fwpmk.h>
 
@@ -109,6 +110,19 @@ DriverEntry(
 
 	driverObject->DriverUnload = driverUnload;
 
+	 // Init Alpc
+	status = InitAlpcAddrs();
+	if (!NT_SUCCESS(status))
+	{
+		return status;
+	}
+
+	status = AlpcDriverStart();
+	if (!NT_SUCCESS(status))
+	{
+		return status;
+	}
+
 	do 
 	{
 		// Init Driver 
@@ -139,8 +153,7 @@ DriverEntry(
 			break;
 		}
 
-		// Init Flowctl
-		status = flowctl_init();
+		status = establishedctx_init();
 		if (!NT_SUCCESS(status))
 		{
 			break;
@@ -188,8 +201,9 @@ VOID driver_clean()
 		g_deviceControl = NULL;
 	}
 	devctrl_setShutdown();
-	flowctl_free();
+	// flowctl_free();
 	datalinkctx_free();
+	establishedctx_free();
 	callout_free();
 	devctrl_free();
 };
