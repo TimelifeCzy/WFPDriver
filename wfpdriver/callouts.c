@@ -179,6 +179,7 @@ helper_callout_classFn_flowEstablished(
 	//	goto Exit;
 	//}
 
+	DbgBreakPoint();
 	establishedctx_pushflowestablishedctx(flowContextLocal, sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO));
 	
 	classifyOut->actionType = FWP_ACTION_PERMIT;
@@ -269,6 +270,7 @@ helper_callout_classFn_mac(
 		pdatalink_info->code = 1;
 
 		// push_data to datalink --> devctrl --> read I/O complate to r3
+		DbgBreakPoint();
 		datalinkctx_pushdata(pdatalink_info, sizeof(PNF_CALLOUT_MAC_INFO));
 	}
 
@@ -356,7 +358,6 @@ NTSTATUS callout_addFlowEstablishedFilter(
 	const GUID* layer, 
 	FWPM_SUBLAYER* subLayer)
 {
-	DbgBreakPoint();
 	NTSTATUS status = STATUS_SUCCESS;
 	FWPM_CALLOUT0 fwpcallout0;
 	RtlSecureZeroMemory(&fwpcallout0,sizeof(FWPM_CALLOUT0));

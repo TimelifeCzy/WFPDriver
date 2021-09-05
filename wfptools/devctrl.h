@@ -14,6 +14,7 @@ public:
 	void devctrl_clean();
 	int devctrl_InitshareMem();
 	void nf_setWfpCheckEventHandler(PVOID64 pHandler);
+	int devctrl_OnMonitor();
 
 private:
 	HANDLE m_devhandler;

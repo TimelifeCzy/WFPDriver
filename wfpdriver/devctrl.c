@@ -157,11 +157,16 @@ NTSTATUS devctrl_createSharedMemory(PSHARED_MEMORY pSharedMemory, UINT64 len)
 	return STATUS_SUCCESS;
 }
 
-NTSTATUS devctrl_open(PIRP irp, PIO_STACK_LOCATION irpSp)
+NTSTATUS devctrl_openMem(PDEVICE_OBJECT DeviceObject, PIRP irp, PIO_STACK_LOCATION irpSp)
 {
-	PVOID ioBuffer = irp->AssociatedIrp.SystemBuffer;
+	PVOID ioBuffer = NULL;
+	ioBuffer = irp->AssociatedIrp.SystemBuffer;
+	if (!ioBuffer)
+	{
+		ioBuffer = irp->UserBuffer;
+	}
 	ULONG outputBufferLength = irpSp->Parameters.DeviceIoControl.OutputBufferLength;
-
+	int size = sizeof(NF_BUFFERS);
 	if (ioBuffer && (outputBufferLength >= sizeof(NF_BUFFERS)))
 	{
 		NTSTATUS 	status;
@@ -243,17 +248,19 @@ NTSTATUS devctrl_read(PIRP irp, PIO_STACK_LOCATION irpSp)
 	NTSTATUS status = STATUS_SUCCESS;
 	KLOCK_QUEUE_HANDLE lh;
 
-	do
+	for (;;)
 	{
 		if (irp->MdlAddress == NULL)
 		{
+			KdPrint((DPREFIX"devctrl_read: NULL MDL address\n"));
 			status = STATUS_INVALID_PARAMETER;
 			break;
 		}
 
-		if (MmGetSystemAddressForMdl(irp->MdlAddress, NormalPagePriority) == NULL ||
+		if (MmGetSystemAddressForMdlSafe(irp->MdlAddress, NormalPagePriority) == NULL ||
 			irpSp->Parameters.Read.Length < sizeof(NF_READ_RESULT))
 		{
+			KdPrint((DPREFIX"devctrl_read: Invalid request\n"));
 			status = STATUS_INSUFFICIENT_RESOURCES;
 			break;
 		}
@@ -265,22 +272,33 @@ NTSTATUS devctrl_read(PIRP irp, PIO_STACK_LOCATION irpSp)
 		if (irp->Cancel &&
 			IoSetCancelRoutine(irp, NULL))
 		{
+			//
+			// IRP has been canceled but the I/O manager did not manage to call our cancel routine. This
+			// code is safe referencing the Irp->Cancel field without locks because of the memory barriers
+			// in the interlocked exchange sequences used by IoSetCancelRoutine.
+			//
+
 			status = STATUS_CANCELLED;
+			// IRP should be completed after releasing the lock
 		}
 		else
 		{
+			//
+			//  Add this IRP to the list of pended Read IRPs
+			//
 			IoMarkIrpPending(irp);
 
-			// Insert Pend -- Kevent handler
 			InsertTailList(&g_pendedIoRequests, &irp->Tail.Overlay.ListEntry);
 
 			status = STATUS_PENDING;
 		}
 
 		sl_unlock(&lh);
+
 		KeSetEvent(&g_ioThreadEvent, IO_NO_INCREMENT, FALSE);
+
 		break;
-	} while (FALSE);
+	}
 
 	if (status != STATUS_PENDING)
 	{
@@ -344,10 +362,14 @@ NTSTATUS devctrl_close(PIRP irp, PIO_STACK_LOCATION irpSp)
 	return status;
 }
 
-VOID devctrl_setmonitor(int flag)
+NTSTATUS devctrl_setmonitor(IRP* irp, int flag)
 {
 	// ÉèÖÃ´òÓ¡±êÇ©
 	g_monitorflag = flag;
+	irp->IoStatus.Status = STATUS_SUCCESS;
+	irp->IoStatus.Information = 0;
+	IoCompleteRequest(irp, IO_NO_INCREMENT);
+	return STATUS_SUCCESS;
 }
 
 NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp)
@@ -367,7 +389,10 @@ NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp)
 		return devctrl_create(irp, irpSp);
 
 	case IRP_MJ_READ:
+	{
+		DbgBreakPoint();
 		return devctrl_read(irp, irpSp);
+	}
 
 	case IRP_MJ_WRITE:
 		return devctrl_write(irp, irpSp);
@@ -379,29 +404,23 @@ NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp)
 		switch (irpSp->Parameters.DeviceIoControl.IoControlCode)
 		{
 		case CTL_DEVCTRL_ENABLE_MONITOR:
-		{
-			devctrl_setmonitor(1);
-		} 
-		break;
+			return devctrl_setmonitor(irp, 1);
+
 		case CTL_DEVCTRL_STOP_MONITOR:
-		{
-			devctrl_setmonitor(0);
-		} 
-		break;
+			return devctrl_setmonitor(irp, 0);
+
 		case CTL_DEVCTRL_OPEN_SHAREMEM:
-		{
-			devctrl_open(irp, irpSp);
+		{	
+			return devctrl_openMem(DeviceObject, irp, irpSp);
 		}
-		break;
 		default:
 			break;
 		}
 	}
 
 	irp->IoStatus.Status = STATUS_SUCCESS;
-	irp->IoStatus.Information = 0;
+	irp->IoStatus.Information = sizeof(NF_BUFFERS);
 	IoCompleteRequest(irp, IO_NO_INCREMENT);
-
 	return STATUS_SUCCESS;
 }
 
@@ -524,7 +543,7 @@ NTSTATUS devctrl_pushDataLinkCtxBuffer(int code)
 	// Send to I/O(Read) Buffer
 	switch (code)
 	{
-	case NF_DATALINK_SEND:
+	case NF_DATALINK_PACKET:
 	{
 		pQuery = ExAllocateFromNPagedLookasideList(&g_IoQueryList);
 		if (!pQuery)
@@ -556,7 +575,7 @@ NTSTATUS devctrl_pushFlowCtxBuffer(int code)
 	// Send to I/O(Read) Buffer
 	switch (code)
 	{
-	case NF_FLOWCTX_SEND:
+	case NF_FLOWCTX_PACKET:
 	{
 		pQuery = ExAllocateFromNPagedLookasideList(&g_IoQueryList);
 		if (!pQuery)
@@ -615,7 +634,7 @@ NTSTATUS devtrl_popDataLinkData(UINT64* pOffset)
 
 		pData = (PNF_DATA)((char*)g_inBuf.kernelVa + *pOffset);
 
-		pData->code = NF_DATALINK_SEND;
+		pData->code = NF_DATALINK_PACKET;
 		pData->id = 0;
 
 		if (pEntry->dataBuffer != NULL) {
@@ -681,7 +700,7 @@ NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
 
 		pData = (PNF_DATA)((char*)g_inBuf.kernelVa + *pOffset);
 
-		pData->code = NF_FLOWCTX_SEND;
+		pData->code = NF_FLOWCTX_PACKET;
 		pData->id = 0;
 
 		if (pEntry->dataBuffer != NULL) {
@@ -726,12 +745,12 @@ UINT64 devctrl_fillBuffer()
 
 		switch (pEntry->code)
 		{
-		case NF_DATALINK_SEND:
+		case NF_DATALINK_PACKET:
 		{
 			status = devtrl_popDataLinkData(&offset);
 		}
 		break;
-		case NF_FLOWCTX_SEND:
+		case NF_FLOWCTX_PACKET:
 		{
 			// pop flowctx data
 			status = devtrl_popFlowestablishedData(&offset);

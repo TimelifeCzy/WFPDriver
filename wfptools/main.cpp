@@ -17,13 +17,13 @@ class EventHandler : public NF_EventHandler
 	// 捕获 TCP UDP 已建立连接数据
 	void establishedPacket(const char* buf, int len) override
 	{
-
+		printf("%s\r\n", buf);
 	}
 
 	// 捕获 MAC 链路层数据
 	void datalinkPacket(const char* buf, int len) override
 	{
-	
+		printf("%s\r\n", buf);
 	}
 
 };
@@ -33,6 +33,8 @@ int main(void)
 	int status = 0;
 	DevctrlIoct devobj;
 	EventHandler packtebuff;
+
+	OutputDebugString(L"Entry Main");
 
 	// Init devctrl
 	status = devobj.devctrl_init();
@@ -59,6 +61,17 @@ int main(void)
 			cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
 			break;
 		}
+		system("pause");
+
+
+		// Enable try Network packte Monitor
+		status = devobj.devctrl_OnMonitor();
+		if (!status)
+		{
+			cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
+			break;
+		}
+		system("pause");
 
 		// Start devctrl workThread
 		status = devobj.devctrl_workthread();
@@ -67,13 +80,17 @@ int main(void)
 			cout << "devctrl_workthread error: main.c --> lines: 46" << endl;
 			break;
 		}
+		system("pause");
+
+
 
 		// Enable Event
 		devobj.nf_setWfpCheckEventHandler((PVOID)&packtebuff);
 
+		system("pause");
 		// Wait Thread Exit
 		devobj.devctrl_waitSingeObject();
-
+		system("pause");
 	} while (false);
 	
 	// clean

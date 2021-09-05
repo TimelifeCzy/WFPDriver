@@ -103,7 +103,7 @@ NTSTATUS establishedctx_pushflowestablishedctx(
 	InsertHeadList(&g_flowesobj.pendedPackets, flowbuf);
 	sl_unlock(&lh);
 
-	devctrl_pushFlowCtxBuffer(NF_FLOWCTX_SEND);
+	devctrl_pushFlowCtxBuffer(NF_FLOWCTX_PACKET);
 
 	return status;
 }

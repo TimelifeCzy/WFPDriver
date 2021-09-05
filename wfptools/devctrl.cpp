@@ -10,14 +10,18 @@
 #include "nfevents.h"
 #define TCP_TIMEOUT_CHECK_PERIOD	5 * 1000
 
-static NF_BUFFERS	g_nfBuffers;
-static DWORD		g_nThreads = 1;
-static HANDLE		g_hDevice;
+static NF_BUFFERS			g_nfBuffers;
+static DWORD				g_nThreads = 1;
+static HANDLE				g_hDevice_old;
+static AutoHandle			g_hDevice;
 static AutoEventHandle		g_ioPostEvent;
 static AutoEventHandle		g_ioEvent;
 static AutoEventHandle		g_stopEvent;
 static DWORD WINAPI	nf_workThread(LPVOID lpThreadParameter);
 static NF_EventHandler* g_pEventHandler = NULL;
+static char	g_driverName[MAX_PATH] = { 0 };
+
+static AutoCriticalSection	g_cs;
 
 #include "EventQueue.h"
 //static EventQueue<NFEvent> g_eventQueue;
@@ -28,8 +32,8 @@ static AutoEventHandle		g_workThreadStoppedEvent;
 
 enum IoctCode
 {
-	NF_ESTABLISHED_LAYER_PACKET = 1,
-	NF_DATALINKMAC_LAYER_PACKET,
+	NF_DATALINKMAC_LAYER_PACKET = 1,
+	NF_ESTABLISHED_LAYER_PACKET
 };
 
 PVOID DevctrlIoct::get_eventhandler()
@@ -50,7 +54,6 @@ int DevctrlIoct::devctrl_init()
 	m_devhandler = NULL;
 	m_threadobjhandler = NULL;
 	m_dwthreadid = 0;
-	g_hDevice = NULL;
 	return 1;
 }
 
@@ -88,7 +91,6 @@ int DevctrlIoct::devctrl_opendeviceSylink(const char* devSylinkName)
 	if (!hDevice)
 		return -1;
 
-	g_hDevice = hDevice;
 	m_devhandler = hDevice;
 
 	return 1;
@@ -96,26 +98,59 @@ int DevctrlIoct::devctrl_opendeviceSylink(const char* devSylinkName)
 
 int DevctrlIoct::devctrl_InitshareMem()
 {
+	AutoLock lock(g_cs);
+
+	if (m_devhandler == INVALID_HANDLE_VALUE)
+	{
+		return NF_STATUS_FAIL;
+	}
+	else
+	{
+		g_hDevice.Attach(m_devhandler);
+		strncpy(g_driverName, "wfpdriver", sizeof(g_driverName));
+	}
+
 	DWORD dwBytesReturned = 0;
 	memset(&g_nfBuffers, 0, sizeof(g_nfBuffers));
-	
-	if (!m_devhandler)
-		return -1;
 
+	OVERLAPPED ol;
+	AutoEventHandle hEvent;
+
+	memset(&ol, 0, sizeof(ol));
+	ol.hEvent = hEvent;
+
+	printf("g_nfBuffers %p\n", &g_nfBuffers);
 	if (!DeviceIoControl(
-		m_devhandler,
+		g_hDevice,
 		CTL_DEVCTRL_OPEN_SHAREMEM,
-		NULL, 
+		NULL,
 		0,
-		(LPVOID)&g_nfBuffers, 
+		(LPVOID)&g_nfBuffers,
 		sizeof(g_nfBuffers),
-		NULL, 
-		NULL))
+		NULL,
+		&ol)
+		)
 	{
 		if (GetLastError() != ERROR_IO_PENDING)
 		{
-			return -1;
+			OutputDebugString(L" devctrl_InitshareMem erro 1");
+			g_hDevice.Close();
+			return NF_STATUS_FAIL;
 		}
+	}
+
+	if (!GetOverlappedResult(g_hDevice, &ol, &dwBytesReturned, TRUE))
+	{
+		OutputDebugString(L" devctrl_InitshareMem erro 2");
+		g_hDevice.Close();
+		return NF_STATUS_FAIL;
+	}
+
+	if (dwBytesReturned != sizeof(g_nfBuffers))
+	{
+		OutputDebugString(L" devctrl_InitshareMem erro 3");
+		g_hDevice.Close();
+		return NF_STATUS_FAIL;
 	}
 
 	return 1;
@@ -143,13 +178,19 @@ void DevctrlIoct::devctrl_clean()
 	}
 }
 
+int DevctrlIoct::devctrl_OnMonitor()
+{
+	return devctrl_sendioct(CTL_DEVCTRL_ENABLE_MONITOR);
+}
+
 int DevctrlIoct::devctrl_sendioct(const int ioctcode)
 {
-	DWORD dSize = 0;
+	DWORD dSize;
 
 	if (!m_devhandler)
 		return -1;
 
+	OutputDebugString(L"devctrl_sendioct entablMonitor");
 	BOOL status = DeviceIoControl(
 		m_devhandler,
 		ioctcode,
@@ -161,8 +202,12 @@ int DevctrlIoct::devctrl_sendioct(const int ioctcode)
 		NULL
 	);
 	if (!status)
+	{
+		OutputDebugString(L"devctrl_sendioct Error End");
 		return -2;
+	}	
 
+	OutputDebugString(L"devctrl_sendioct End");
 	return 1;
 }
 
@@ -173,21 +218,22 @@ int DevctrlIoct::devctrl_writeio()
 
 static void handleEventDispath(PNF_DATA pData)
 {
+	char pPacketData_established[] = "[recv]NF_ESTABLISHED_LAYER_PACKET";
+	unsigned long packetDataLen_established = sizeof(pPacketData_established);
+
+	char pPacketData_datalink[] = "[recv]NF_DATALINKMAC_LAYER_PACKET";
+	unsigned long packetDataLen_datalink = sizeof(pPacketData_datalink);
 	switch (pData->code)
 	{
 	case NF_ESTABLISHED_LAYER_PACKET:
 	{
 		// push established - event
-		char* pPacketData = NULL;
-		unsigned long packetDataLen = 0;
-		g_pEventHandler->establishedPacket(pPacketData, packetDataLen);
+		g_pEventHandler->establishedPacket(pPacketData_established, packetDataLen_established);
 	}
 	break;
 	case NF_DATALINKMAC_LAYER_PACKET:
 	{
-		char* pPacketData = NULL;
-		unsigned long packetDataLen = 0;
-		g_pEventHandler->datalinkPacket(pPacketData, packetDataLen);
+		g_pEventHandler->datalinkPacket(pPacketData_datalink, packetDataLen_datalink);
 		// push datalink - event
 	}
 	break;
@@ -207,9 +253,11 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 	bool abortBatch;
 	int i;
 
+	OutputDebugString(L"Entry WorkThread");
+
 	SetEvent(g_workThreadStartedEvent);
-	//g_eventQueue.init(g_nThreads);
-	//g_eventQueueOut.init(1);
+	// g_eventQueue.init(g_nThreads);
+	// g_eventQueueOut.init(1);
 
 	for (;;)
 	{
@@ -229,11 +277,16 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 			if (!ReadFile(g_hDevice, &rr, sizeof(rr), NULL, &ol))
 			{
 				if (GetLastError() != ERROR_IO_PENDING)
+				{
+					OutputDebugString(L"ReadFile Error!");
 					goto finish;
+				}
 			}
+			OutputDebugStringW(L"~~~~~ReadFile~~~~~~~");
 
 			for (;;)
 			{
+				OutputDebugStringW(L"~~~~~WaitForMultipleObjects~~~~~~~");
 				dwRes = WaitForMultipleObjects(
 					sizeof(events) / sizeof(events[0]),
 					events,
@@ -247,7 +300,7 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 					//g_eventQueue.suspend(false);
 					//g_eventQueueOut.processEvents();
 					//g_eventQueue.processEvents();
-
+					OutputDebugStringW(L"~~~~~abortBatch true~~~~~~~");
 					abortBatch = true;
 
 					continue;
@@ -258,12 +311,14 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 						goto finish;
 					}
 
+				OutputDebugStringW(L"~~~~~WaitForSingleObject~~~~~~~");
 				dwRes = WaitForSingleObject(g_stopEvent, 0);
 				if (dwRes == WAIT_OBJECT_0)
 				{
 					goto finish;
 				}
 
+				OutputDebugStringW(L"~~~~~GetOverlappedResult~~~~~~~");
 				if (!GetOverlappedResult(g_hDevice, &ol, &readBytes, FALSE))
 				{
 					goto finish;
@@ -320,6 +375,8 @@ finish:
 	//g_eventQueueOut.free();
 
 	SetEvent(g_workThreadStoppedEvent);
+
+	OutputDebugString(L"ReadFile Thread Exit");
 
 	return 0;
 }

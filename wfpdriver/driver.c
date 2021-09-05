@@ -40,10 +40,15 @@ NTSTATUS driver_init(
 		return status;
 	}
 
+	g_deviceControl->Flags &= ~DO_DEVICE_INITIALIZING;
+
 	status = IoCreateSymbolicLink(&u_devicesyslink, &u_devicename);
 	if(!NT_SUCCESS(status)){
 		return status;
 	}
+
+	g_deviceControl->Flags &= ~DO_DEVICE_INITIALIZING;
+	g_deviceControl->Flags |= DO_DIRECT_IO;
 
 	return status;
 }
