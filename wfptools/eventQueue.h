@@ -42,56 +42,6 @@ inline bool isEventFlagEnabled(int flags, int code)
 	return (flags & (1 << code)) != 0;
 }
 
-//class NFEvent : public ThreadJob
-//{
-//public:
-//
-//	NFEvent(eEndpointType et, ENDPOINT_ID id, int flags) 
-//	{
-//		m_et = et;
-//		m_id = id;
-//		m_flags = flags;
-//	}
-//
-//	~NFEvent()
-//	{
-//	}
-//
-//	virtual void execute()
-//	{
-//		void* pConn = NULL;
-//	}
-//
-//	eEndpointType	m_et;
-//	ENDPOINT_ID		m_id;
-//	unsigned long	m_flags;
-//};
-//
-//class NFEventOut : public ThreadJob
-//{
-//public:
-//
-//	NFEventOut(eEndpointType et, ENDPOINT_ID id, int flags) 
-//	{
-//		m_et = et;
-//		m_id = id;
-//		m_flags = flags;
-//	}
-//
-//	~NFEventOut()
-//	{
-//	}
-//
-//	virtual void execute()
-//	{
-//		void* pConn = NULL;
-//	}
-//
-//	eEndpointType	m_et;
-//	ENDPOINT_ID		m_id;
-//	unsigned long	m_flags;
-//};
-
 template <class EventType>
 class EventQueue : public ThreadJobSource
 {
@@ -111,7 +61,6 @@ public:
 	{
 		m_nThreads = nThreads;
 		m_pending = false;
-		// g_nfeventhandler = g_ctrobj.get_eventhandler();
 		return m_pool.init(nThreads, this);
 	}
 

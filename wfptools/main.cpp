@@ -1,5 +1,5 @@
 //
-// @ 2021/9/3
+// @ 2021/9/4
 //  
 //
 #include <Windows.h>
@@ -7,23 +7,58 @@
 #include "devctrl.h"
 #include "nfevents.h"
 #include "HlprServerAlpc.h"
+#include "nf_api.h"
 
+#include <map>
+#include <mutex>
 using namespace std;
 
 const char devSyLinkName[] = "\\??\\WFPDark";
+
+typedef struct _PROCESS_INFO
+{
+	WCHAR  processPath[260];
+	UINT64 processId;
+}PROCESS_INFO, *PPROCESS_INFO;
+
+static mutex g_mutx;
+map<int, NF_CALLOUT_FLOWESTABLISHED_INFO> flowestablished_map;
 
 class EventHandler : public NF_EventHandler
 {
 	// 捕获 TCP UDP 已建立连接数据
 	void establishedPacket(const char* buf, int len) override
 	{
-		wstring wsinfo;
-
 		NF_CALLOUT_FLOWESTABLISHED_INFO flowestablished_processinfo;
 		RtlSecureZeroMemory(&flowestablished_processinfo, sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO));
 		RtlCopyMemory(&flowestablished_processinfo, buf, len);
+		
+		/*
+			TCP - UDP 不同协议相同端口将覆盖，因为需求不需要保存所有的包
+		*/
+		DWORD keyLocalPort = flowestablished_processinfo.toLocalPort;
+		switch (flowestablished_processinfo.protocol)
+		{
+		case IPPROTO_TCP:
+			keyLocalPort += 1000000;
+			break;
+		case IPPROTO_UDP:
+			keyLocalPort += 2000000;
+			break;
+		}
+		g_mutx.lock();
+		flowestablished_map[keyLocalPort] = flowestablished_processinfo;
+		g_mutx.unlock();
+
+		//// test api 测试是否可以从map获取数据
+		//PROCESS_INFO processinfo = { 0, };
+		//nf_getprocessinfo(&flowestablished_processinfo.ipv4LocalAddr, flowestablished_processinfo.toLocalPort, flowestablished_processinfo.protocol, &processinfo);
+		//processinfo.processId;
+		//processinfo.processPath;
+
+		// test path
+		wstring wsinfo;
 		wsinfo = flowestablished_processinfo.processPath;
-		// printf("Pid %d\t Local_addr: 0x%u \tLocal_port:%d\n\r", flowestablished_processinfo.processId, flowestablished_processinfo.ipv4LocalAddr, flowestablished_processinfo.toLocalPort);
 		OutputDebugString(wsinfo.data());
 	}
 
@@ -36,13 +71,13 @@ class EventHandler : public NF_EventHandler
 };
 
 int main(void)
+// int nf_init(void)
 {
 	int status = 0;
 	DevctrlIoct devobj;
 	EventHandler packtebuff;
 
 	OutputDebugString(L"Entry Main");
-
 	//// Start devctrl workThread
 	//status = devobj.devctrl_Alpcworkthread();
 	//if (!status)
@@ -69,13 +104,9 @@ int main(void)
 	//	whiles++;
 	//}
 
-	OutputDebugString(L"Init Connect Success");
-
-	getchar();
-
 	// Init devctrl
 	status = devobj.devctrl_init();
-	if (!status)
+	if (0 > status)
 	{
 		cout << "devctrl_init error: main.c --> lines: 19" << endl;
 		return -1;
@@ -85,7 +116,7 @@ int main(void)
 	{
 		// Open driver
 		status = devobj.devctrl_opendeviceSylink(devSyLinkName);
-		if (!status)
+		if (0 > status)
 		{
 			cout << "devctrl_opendeviceSylink error: main.c --> lines: 30" << endl;
 			break;
@@ -93,14 +124,14 @@ int main(void)
 
 		// Init share Mem
 		status = devobj.devctrl_InitshareMem();
-		if (!status)
+		if (0 > status)
 		{
 			cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
 			break;
 		}
 
 		status = devobj.devctrl_workthread();
-		if (!status)
+		if (0 > status)
 		{
 			cout << "devctrl_workthread error: main.c --> lines: 38" << endl;
 			break;
@@ -108,7 +139,7 @@ int main(void)
 
 		// Enable try Network packte Monitor
 		status = devobj.devctrl_OnMonitor();
-		if (!status)
+		if (0 > status)
 		{
 			cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
 			break;
@@ -119,21 +150,107 @@ int main(void)
 		
 		// Wait Thread Exit
 		// devobj.devctrl_waitSingeObject();
+		status = 1;
 	} while (false);
 
-	OutputDebugString(L"Ssss");
+	// 当DLL时候可以注释掉
+	//MSG msg;
+	//if (0 > status)
+	//{
+	//	devobj.devctrl_clean();
+	//	return 0;
+	//}
+	//while (GetMessage(&msg, NULL, 0, 0))
+	//{
+	//	TranslateMessage(&msg);
+	//	DispatchMessage(&msg);
+	//}
+	// devobj.devctrl_clean();
 
-	MSG msg;
-	while (GetMessage(&msg, NULL, 0, 0))
+	return status;
+}
+
+/*
+	@ 参数1 ipv4 address
+	@ 参数2 本地端口
+	@ 参数3 协议
+	@ 参数4 数据指针
+*/
+int nf_getprocessinfo(
+	UINT32* Locaaddripv4, 
+	unsigned long localport,
+	int protocol,
+	PVOID64 getbuffer
+)
+{
+	// -1 参数错误
+	if (!Locaaddripv4 && (localport <= 0) && !getbuffer && !protocol)
+		return  -1;
+
+	switch (protocol)
 	{
-		TranslateMessage(&msg);
-		DispatchMessage(&msg);
+	case IPPROTO_TCP:
+		localport += 1000000;
+		break;
+	case IPPROTO_UDP:
+		localport += 2000000;
+		break;
 	}
 
-	devobj.devctrl_clean();
+	try
+	{
+		PPROCESS_INFO processinf = NULL;
+		processinf = (PPROCESS_INFO)getbuffer;
+		auto mapiter = flowestablished_map.find(localport);
+		// -3 find failuer not`t processinfo
+		if (mapiter == flowestablished_map.end())
+			return -3;
+		processinf->processId = mapiter->second.processId;
+		RtlCopyMemory(processinf->processPath, mapiter->second.processPath, mapiter->second.processPathSize);
+		return 1;
+	}
+	catch (const std::exception&)
+	{
+		// 异常
+		return -4;
+	}
+}
 
-	// clean
-	devobj.devctrl_clean();
+int nf_monitor(
+	int code
+)
+{
+	DWORD dSize = 0;
+	DWORD ioctcode = 0;
 
-	return 0;
+	if (!g_deviceHandle)
+		return -1;
+
+	switch (code)
+	{
+	case 0:
+		ioctcode = CTL_DEVCTRL_DISENTABLE_MONITOR;
+		break;
+	case 1:
+		ioctcode = CTL_DEVCTRL_ENABLE_MONITOR;
+		break;
+	}
+
+	OutputDebugString(L"devctrl_sendioct entablMonitor");
+	BOOL status = DeviceIoControl(
+		g_deviceHandle,
+		ioctcode,
+		NULL,
+		0,
+		NULL,
+		0,
+		&dSize,
+		NULL
+	);
+	if (!status)
+	{
+		OutputDebugString(L"devctrl_sendioct Error End");
+		return -2;
+	}
+	return status;
 }

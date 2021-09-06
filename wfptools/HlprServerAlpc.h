@@ -84,6 +84,7 @@ typedef struct _NF_CALLOUT_FLOWESTABLISHED_INFO
 	UINT16 toRemotePort;
 
 	WCHAR  processPath[260];
+	int	   processPathSize;
 	UINT64 processId;
 
 	LONG refCount;

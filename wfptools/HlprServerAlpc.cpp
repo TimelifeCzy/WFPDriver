@@ -6,8 +6,6 @@
 #include "nfdriver.h"
 
 using namespace std;
-
-
 int waitDriverConnectAlpcHandle = 0;
 
 // 负责保存进程pid, 防止注入多次

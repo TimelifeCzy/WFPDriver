@@ -412,7 +412,7 @@ NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp)
 		case CTL_DEVCTRL_ENABLE_MONITOR:
 			return devctrl_setmonitor(irp, 1);
 
-		case CTL_DEVCTRL_STOP_MONITOR:
+		case CTL_DEVCTRL_DISENTABLE_MONITOR:
 			return devctrl_setmonitor(irp, 0);
 
 		case CTL_DEVCTRL_OPEN_SHAREMEM:

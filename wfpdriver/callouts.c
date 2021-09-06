@@ -74,6 +74,7 @@ typedef struct _NF_CALLOUT_FLOWESTABLISHED_INFO
 	UINT16 toRemotePort;
 
 	WCHAR  processPath[260];
+	int	   processPathSize;
 	UINT64 processId;
 
 	LONG refCount;
@@ -183,6 +184,7 @@ helper_callout_classFn_flowEstablished(
 	flowContextLocal->toRemotePort =
 		inFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_REMOTE_PORT].value.uint16;
 	flowContextLocal->processId = inMetaValues->processId;
+	flowContextLocal->processPathSize = inMetaValues->processPath->size;
 	RtlCopyMemory(flowContextLocal->processPath, inMetaValues->processPath->data, inMetaValues->processPath->size);
 
 	establishedctx_pushflowestablishedctx(flowContextLocal, sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO));

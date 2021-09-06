@@ -5,10 +5,9 @@
 
 #include "nfdriver.h"
 #include "sync.h"
-#include "eventQueue.h"
-#include "devctrl.h"
 #include "nfevents.h"
 #include "HlprServerAlpc.h"
+#include "devctrl.h"
 
 #define TCP_TIMEOUT_CHECK_PERIOD	5 * 1000
 
@@ -23,12 +22,11 @@ static DWORD WINAPI	nf_workThread(LPVOID lpThreadParameter);
 // static DWORD WINAPI nf_AlpcworkThread(LPVOID lpThreadParameter);
 static NF_EventHandler* g_pEventHandler = NULL;
 static char	g_driverName[MAX_PATH] = { 0 };
+HANDLE	g_deviceHandle;
 
 static AutoCriticalSection	g_cs;
 
 #include "EventQueue.h"
-//static EventQueue<NFEvent> g_eventQueue;
-//static EventQueue<NFEventOut> g_eventQueueOut;
 
 static AutoEventHandle		g_workThreadStartedEvent;
 static AutoEventHandle		g_workThreadStoppedEvent;
@@ -58,6 +56,7 @@ int DevctrlIoct::devctrl_init()
 	m_threadobjhandler = NULL;
 	m_alpcthreadobjhandler = NULL;
 	m_dwthreadid = 0;
+	g_deviceHandle = NULL;
 	return 1;
 }
 
@@ -77,34 +76,34 @@ int DevctrlIoct::devctrl_workthread()
 	return 1;
 }
 
-int DevctrlIoct::devctrl_Alpcworkthread()
-{
-	WCHAR AlpcDriverPortName[] = L"\\RPC Control\\AlpcDriverPort";
-	// start thread
-	m_alpcthreadobjhandler = CreateThread(
-		NULL,
-		0,
-		(LPTHREAD_START_ROUTINE)AlpcPortStart,
-		(LPVOID)AlpcDriverPortName,
-		0,
-		&m_dwthreadid
-	);
-	if (!m_threadobjhandler)
-		return 0;
-
-	m_listthreadobjhandler = CreateThread(
-		NULL,
-		0,
-		(LPTHREAD_START_ROUTINE)list_thread,
-		NULL,
-		0,
-		&m_dwthreadid1
-	);
-	if (!m_listthreadobjhandler)
-		return 0;
-
-	return 1;
-}
+//int DevctrlIoct::devctrl_Alpcworkthread()
+//{
+//	WCHAR AlpcDriverPortName[] = L"\\RPC Control\\AlpcDriverPort";
+//	// start thread
+//	m_alpcthreadobjhandler = CreateThread(
+//		NULL,
+//		0,
+//		(LPTHREAD_START_ROUTINE)AlpcPortStart,
+//		(LPVOID)AlpcDriverPortName,
+//		0,
+//		&m_dwthreadid
+//	);
+//	if (!m_threadobjhandler)
+//		return 0;
+//
+//	m_listthreadobjhandler = CreateThread(
+//		NULL,
+//		0,
+//		(LPTHREAD_START_ROUTINE)list_thread,
+//		NULL,
+//		0,
+//		&m_dwthreadid1
+//	);
+//	if (!m_listthreadobjhandler)
+//		return 0;
+//
+//	return 1;
+//}
 
 int DevctrlIoct::devctrl_opendeviceSylink(const char* devSylinkName)
 {
@@ -121,11 +120,11 @@ int DevctrlIoct::devctrl_opendeviceSylink(const char* devSylinkName)
 		FILE_ATTRIBUTE_NORMAL,
 		NULL
 	);
-	if (!hDevice)
+	if (hDevice == INVALID_HANDLE_VALUE)
 		return -1;
 
 	m_devhandler = hDevice;
-
+	g_deviceHandle = hDevice;
 	return 1;
 }
 
@@ -190,6 +189,9 @@ int DevctrlIoct::devctrl_waitSingeObject()
 
 void DevctrlIoct::devctrl_clean()
 {
+	// Send Driver Clean
+	// devctrl_sendioct();
+
 	if (m_devhandler)
 	{
 		CloseHandle(m_devhandler);
@@ -276,15 +278,12 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 	OutputDebugString(L"Entry WorkThread");
 
 	SetEvent(g_workThreadStartedEvent);
-	// g_eventQueue.init(g_nThreads);
-	// g_eventQueueOut.init(1);
 
 	for (;;)
 	{
 		waitTimeout = 10;
 		abortBatch = false;
-		// g_eventQueue.suspend(true);
-		
+
 		// “Ï≤Ω»•∂¡
 		for (i = 0; i < 8; i++)
 		{
@@ -314,12 +313,7 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 				if (dwRes == WAIT_TIMEOUT)
 				{
 					waitTimeout = TCP_TIMEOUT_CHECK_PERIOD;
-
-					//g_eventQueue.suspend(false);
-					//g_eventQueueOut.processEvents();
-					//g_eventQueue.processEvents();
 					abortBatch = true;
-
 					continue;
 				}
 				else if (dwRes != WAIT_OBJECT_0)
@@ -373,25 +367,14 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 			if (abortBatch)
 				break;
 		}
-
-		//g_eventQueue.suspend(false);
-		//g_eventQueueOut.processEvents();
-		//g_eventQueue.processEvents();
-		//g_eventQueue.wait(8000);
-		//g_eventQueueOut.wait(64000);
 	}
 
 finish:
 
 	CancelIo(g_hDevice);
-
-	//g_eventQueue.free();
-	//g_eventQueueOut.free();
-
 	SetEvent(g_workThreadStoppedEvent);
 
 	OutputDebugString(L"ReadFile Thread Exit");
-
 	return 0;
 }
 
