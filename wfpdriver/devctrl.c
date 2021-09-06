@@ -168,7 +168,7 @@ NTSTATUS devctrl_openMem(PDEVICE_OBJECT DeviceObject, PIRP irp, PIO_STACK_LOCATI
 		ioBuffer = irp->UserBuffer;
 	}
 	ULONG outputBufferLength = irpSp->Parameters.DeviceIoControl.OutputBufferLength;
-	int size = sizeof(NF_BUFFERS);
+
 	if (ioBuffer && (outputBufferLength >= sizeof(NF_BUFFERS)))
 	{
 		NTSTATUS 	status;
@@ -635,7 +635,8 @@ NTSTATUS devtrl_popDataLinkData(UINT64* pOffset)
 			break;
 			
 		pEntry = RemoveHeadList(&pdatalinkbuf->pendedPackets);
-		dataSize = g_inBuf.bufferLength - *pOffset;
+
+		dataSize = sizeof(NF_DATA) - 1 + pPacketlens;
 		if ((g_inBuf.bufferLength - *pOffset) < dataSize)
 		{
 			status = STATUS_NO_MEMORY;
@@ -647,15 +648,14 @@ NTSTATUS devtrl_popDataLinkData(UINT64* pOffset)
 		{
 			return STATUS_NO_MEMORY;
 		}
-		dataSize = sizeof(NF_DATA) - 1 + pPacketlens;
 
 		pData = (PNF_DATA)((char*)g_inBuf.kernelVa + *pOffset);
-
 		pData->code = NF_DATALINK_PACKET;
 		pData->id = 0;
+		pData->bufferSize = pEntry->dataLength;
 
 		if (pEntry->dataBuffer != NULL) {
-			memcpy(pData->buffer, &pEntry->dataBuffer, pEntry->dataLength);
+			memcpy(pData->buffer, pEntry->dataBuffer, pEntry->dataLength);
 		}
 		
 		*pOffset += dataSize;
@@ -702,27 +702,28 @@ NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
 
 		pEntry = RemoveHeadList(&pestablishedbuf->pendedPackets);
 
-		dataSize = g_inBuf.bufferLength - *pOffset;
+		pPacketlens = pEntry->dataLength;
+		if (!pPacketlens)
+		{
+			return STATUS_NO_MEMORY;
+		}
+
+		dataSize = sizeof(NF_DATA) - 1 + pPacketlens;
 		if ((g_inBuf.bufferLength - *pOffset) < dataSize)
 		{
 			status = STATUS_NO_MEMORY;
 			break;
 		}
 
-		pPacketlens = pEntry->dataLength;
-		if (!pPacketlens)
-		{
-			return STATUS_NO_MEMORY;
-		}
-		dataSize = sizeof(NF_DATA) - 1 + pPacketlens;
-
 		pData = (PNF_DATA)((char*)g_inBuf.kernelVa + *pOffset);
 
 		pData->code = NF_FLOWCTX_PACKET;
-		pData->id = 0;
+		pData->id = 520;
+		pData->bufferSize = pEntry->dataLength;
 
+		// DbgBreakPoint();
 		if (pEntry->dataBuffer != NULL) {
-			memcpy(pData->buffer, &pEntry->dataBuffer, pEntry->dataLength);
+			memcpy(pData->buffer, pEntry->dataBuffer, pEntry->dataLength);
 		}
 
 		*pOffset += dataSize;
@@ -796,6 +797,7 @@ UINT64 devctrl_fillBuffer()
 
 void devctrl_serviceReads()
 {
+	// DbgBreakPoint();
 	PIRP                irp = NULL;
 	PLIST_ENTRY         pIrpEntry;
 	BOOLEAN             foundPendingIrp = FALSE;

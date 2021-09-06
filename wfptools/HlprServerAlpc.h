@@ -83,12 +83,10 @@ typedef struct _NF_CALLOUT_FLOWESTABLISHED_INFO
 #pragma warning(pop)
 	UINT16 toRemotePort;
 
-	// WCHAR  processPath[260];
+	WCHAR  processPath[260];
 	UINT64 processId;
 
 	LONG refCount;
-
-	WCHAR proceepath[1];
 }NF_CALLOUT_FLOWESTABLISHED_INFO, * PNF_CALLOUT_FLOWESTABLISHED_INFO;
 
 /*

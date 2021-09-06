@@ -15,6 +15,8 @@
 #include <set>
 #include <list>
 
+typedef __int64 ENDPOINT_ID;
+
 enum eEndpointType
 {
 	ET_UNKNOWN,
@@ -39,9 +41,6 @@ inline bool isEventFlagEnabled(int flags, int code)
 {
 	return (flags & (1 << code)) != 0;
 }
-
-bool nf_pushInEvent(ENDPOINT_ID id, int code);
-bool nf_pushOutEvent(ENDPOINT_ID id, int code);
 
 //class NFEvent : public ThreadJob
 //{

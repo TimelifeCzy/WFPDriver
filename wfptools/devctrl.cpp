@@ -242,23 +242,18 @@ int DevctrlIoct::devctrl_writeio()
 
 static void handleEventDispath(PNF_DATA pData)
 {
-	char pPacketData_established[] = "[recv]NF_ESTABLISHED_LAYER_PACKET";
-	unsigned long packetDataLen_established = sizeof(pPacketData_established);
-
-	char pPacketData_datalink[] = "[recv]NF_DATALINKMAC_LAYER_PACKET";
-	unsigned long packetDataLen_datalink = sizeof(pPacketData_datalink);
 	switch (pData->code)
 	{
 	case NF_ESTABLISHED_LAYER_PACKET:
 	{
-		OutputDebugString(L"g_pEventHandler->establishedPacket");
 		// push established - event
-		g_pEventHandler->establishedPacket(pPacketData_established, packetDataLen_established);
+		// printf("Code: %d, id: %d, pData_buffer: 0x%p , size = %d\n\r", pData->code, pData->id, pData->buffer, pData->bufferSize);
+		g_pEventHandler->establishedPacket(pData->buffer, pData->bufferSize);
 	}
 	break;
 	case NF_DATALINKMAC_LAYER_PACKET:
 	{
-		g_pEventHandler->datalinkPacket(pPacketData_datalink, packetDataLen_datalink);
+		g_pEventHandler->datalinkPacket(pData->buffer, pData->bufferSize);
 		// push datalink - event
 	}
 	break;
@@ -307,11 +302,9 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 					goto finish;
 				}
 			}
-			OutputDebugStringW(L"~~~~~ReadFile~~~~~~~");
 
 			for (;;)
 			{
-				OutputDebugStringW(L"~~~~~WaitForMultipleObjects~~~~~~~");
 				dwRes = WaitForMultipleObjects(
 					sizeof(events) / sizeof(events[0]),
 					events,
@@ -325,7 +318,6 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 					//g_eventQueue.suspend(false);
 					//g_eventQueueOut.processEvents();
 					//g_eventQueue.processEvents();
-					OutputDebugStringW(L"~~~~~abortBatch true~~~~~~~");
 					abortBatch = true;
 
 					continue;
@@ -335,14 +327,12 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 					goto finish;
 				}
 
-				OutputDebugStringW(L"~~~~~WaitForSingleObject~~~~~~~");
 				dwRes = WaitForSingleObject(g_stopEvent, 0);
 				if (dwRes == WAIT_OBJECT_0)
 				{
 					goto finish;
 				}
 
-				OutputDebugStringW(L"~~~~~GetOverlappedResult~~~~~~~");
 				if (!GetOverlappedResult(g_hDevice, &ol, &readBytes, FALSE))
 				{
 					goto finish;
@@ -350,8 +340,6 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 
 				break;
 			}
-			
-			OutputDebugString(L"Get Kernel Buffer Success");
 
 			readBytes = (DWORD)rr.length;
 
@@ -362,11 +350,8 @@ static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
 
 			pData = (PNF_DATA)g_nfBuffers.inBuf;
 
-			OutputDebugString(L"Get Kernel pData Success");
-
 			while (readBytes >= (sizeof(NF_DATA) - 1))
 			{
-				OutputDebugString(L"Entry handleEventDispath");
 				handleEventDispath(pData);
 
 				if ((pData->code == NF_DATALINKMAC_LAYER_PACKET ||

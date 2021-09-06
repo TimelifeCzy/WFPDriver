@@ -91,7 +91,7 @@ enum _NF_DATA_CODE
 typedef UNALIGNED struct _NF_DATA
 {
 	int				code;
-	INT64			id;
+	int				id;
 	unsigned long	bufferSize;
 	char 			buffer[1];
 } NF_DATA, * PNF_DATA;

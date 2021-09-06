@@ -124,8 +124,6 @@ typedef  struct _NF_RULE_EX
 	wchar_t			processName[260];
 } NF_RULE_EX, *PNF_RULE_EX;
 
-typedef unsigned __int64 ENDPOINT_ID;
-
 
 /**
 *	TCP connection properties
@@ -211,13 +209,13 @@ typedef struct _NF_IP_PACKET_OPTIONS
 /**
 *	Internal IO structure
 **/
-typedef  struct _NF_DATA
+typedef struct _NF_DATA
 {
 	int				code;
-	ENDPOINT_ID		id;
+	int				id;
 	unsigned long	bufferSize;
 	char 			buffer[1];
-} NF_DATA, *PNF_DATA;
+} NF_DATA, * PNF_DATA;
 
 typedef  struct _NF_BUFFERS
 {

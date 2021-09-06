@@ -17,7 +17,14 @@ class EventHandler : public NF_EventHandler
 	// 捕获 TCP UDP 已建立连接数据
 	void establishedPacket(const char* buf, int len) override
 	{
-		printf("%s\r\n", buf);
+		wstring wsinfo;
+
+		NF_CALLOUT_FLOWESTABLISHED_INFO flowestablished_processinfo;
+		RtlSecureZeroMemory(&flowestablished_processinfo, sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO));
+		RtlCopyMemory(&flowestablished_processinfo, buf, len);
+		wsinfo = flowestablished_processinfo.processPath;
+		// printf("Pid %d\t Local_addr: 0x%u \tLocal_port:%d\n\r", flowestablished_processinfo.processId, flowestablished_processinfo.ipv4LocalAddr, flowestablished_processinfo.toLocalPort);
+		OutputDebugString(wsinfo.data());
 	}
 
 	// 捕获 MAC 链路层数据
@@ -63,6 +70,8 @@ int main(void)
 	//}
 
 	OutputDebugString(L"Init Connect Success");
+
+	getchar();
 
 	// Init devctrl
 	status = devobj.devctrl_init();
