@@ -2,7 +2,6 @@
 #pragma comment(lib,"alpc.lib")
 #pragma comment(lib,"ntdll.lib")
 
-
 typedef USHORT ADDRESS_FAMILY;
 
 #define FWP_BYTE_ARRAY6_SIZE 6
@@ -67,20 +66,29 @@ typedef struct _NF_CALLOUT_FLOWESTABLISHED_INFO
 		UINT32 ipv4LocalAddr;
 	};
 #pragma warning(pop)
+	UINT16 toLocalPort;
 
 	UINT8 protocol;
-
 	UINT64 flowId;
 	UINT16 layerId;
 	UINT32 calloutId;
 
-	UINT8* toRemoteAddr;
+#pragma warning(push)
+#pragma warning(disable: 4201) //NAMELESS_STRUCT_UNION
+	union
+	{
+		FWP_BYTE_ARRAY16 RemoteAddr;
+		UINT32 ipv4toRemoteAddr;
+	};
+#pragma warning(pop)
 	UINT16 toRemotePort;
 
-	WCHAR  processPath[260];
+	// WCHAR  processPath[260];
 	UINT64 processId;
 
 	LONG refCount;
+
+	WCHAR proceepath[1];
 }NF_CALLOUT_FLOWESTABLISHED_INFO, * PNF_CALLOUT_FLOWESTABLISHED_INFO;
 
 /*
@@ -91,8 +99,10 @@ typedef struct _NF_CALLOUT_MAC_INFO
 	int code;
 }NF_CALLOUT_MAC_INFO, * PNF_CALLOUT_MAC_INFO;
 
+// extern vector<NF_CALLOUT_FLOWESTABLISHED_INFO> flowestablished_list;
+
 void AlpcPortStart(wchar_t* PortName);
 
-void AlpcSendtoClientMsg(HANDLE sendPort, UNIVERMSG* univermsg, const int msgid);
+void list_thread(wchar_t* PortName);
 
-void InitEvent();
+void AlpcSendtoClientMsg(HANDLE sendPort, UNIVERMSG* univermsg, const int msgid);

@@ -32,35 +32,35 @@ int main(void)
 {
 	int status = 0;
 	DevctrlIoct devobj;
-	// EventHandler packtebuff;
+	EventHandler packtebuff;
 
 	OutputDebugString(L"Entry Main");
 
-	// Start devctrl workThread
-	status = devobj.devctrl_Alpcworkthread();
-	if (!status)
-	{
-		cout << "devctrl_workthread error: main.c --> lines: 46" << endl;
-	}
+	//// Start devctrl workThread
+	//status = devobj.devctrl_Alpcworkthread();
+	//if (!status)
+	//{
+	//	cout << "devctrl_workthread error: main.c --> lines: 46" << endl;
+	//}
 
-	// 给线程执行机会 - 创建port
-	Sleep(100);
+	//// 给线程执行机会 - 创建port
+	//Sleep(100);
 
-	DWORD whiles = 0;
-	// wait driver Connect
-	while (true)
-	{
-		if (waitDriverConnectAlpcHandle == 100)
-		{
-			break;
-		}
-		if (whiles == 10000)
-		{
-			OutputDebugString(L"Driver Load Timeout");
-		}
-		Sleep(1000);
-		whiles++;
-	}
+	//DWORD whiles = 0;
+	//// wait driver Connect
+	//while (true)
+	//{
+	//	if (waitDriverConnectAlpcHandle == 100)
+	//	{
+	//		break;
+	//	}
+	//	if (whiles == 10000)
+	//	{
+	//		OutputDebugString(L"Driver Load Timeout");
+	//	}
+	//	Sleep(1000);
+	//	whiles++;
+	//}
 
 	OutputDebugString(L"Init Connect Success");
 
@@ -83,13 +83,19 @@ int main(void)
 		}
 
 		// Init share Mem
-		//status = devobj.devctrl_InitshareMem();
-		//if (!status)
-		//{
-		//	cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
-		//	break;
-		//}
-		//system("pause");
+		status = devobj.devctrl_InitshareMem();
+		if (!status)
+		{
+			cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
+			break;
+		}
+
+		status = devobj.devctrl_workthread();
+		if (!status)
+		{
+			cout << "devctrl_workthread error: main.c --> lines: 38" << endl;
+			break;
+		}
 
 		// Enable try Network packte Monitor
 		status = devobj.devctrl_OnMonitor();
@@ -98,14 +104,15 @@ int main(void)
 			cout << "devctrl_InitshareMem error: main.c --> lines: 38" << endl;
 			break;
 		}
-		// system("pause");
 
 		// Enable Event
-		// devobj.nf_setWfpCheckEventHandler((PVOID)&packtebuff);
+		devobj.nf_setWfpCheckEventHandler((PVOID)&packtebuff);
 		
 		// Wait Thread Exit
 		// devobj.devctrl_waitSingeObject();
 	} while (false);
+
+	OutputDebugString(L"Ssss");
 
 	MSG msg;
 	while (GetMessage(&msg, NULL, 0, 0))
@@ -113,6 +120,8 @@ int main(void)
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
+
+	devobj.devctrl_clean();
 
 	// clean
 	devobj.devctrl_clean();

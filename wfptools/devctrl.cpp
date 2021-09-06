@@ -19,7 +19,7 @@ static AutoHandle			g_hDevice;
 static AutoEventHandle		g_ioPostEvent;
 static AutoEventHandle		g_ioEvent;
 static AutoEventHandle		g_stopEvent;
-// static DWORD WINAPI	nf_workThread(LPVOID lpThreadParameter);
+static DWORD WINAPI	nf_workThread(LPVOID lpThreadParameter);
 // static DWORD WINAPI nf_AlpcworkThread(LPVOID lpThreadParameter);
 static NF_EventHandler* g_pEventHandler = NULL;
 static char	g_driverName[MAX_PATH] = { 0 };
@@ -61,21 +61,21 @@ int DevctrlIoct::devctrl_init()
 	return 1;
 }
 
-//int DevctrlIoct::devctrl_workthread()
-//{
-//	// start thread
-//	m_threadobjhandler = CreateThread(
-//		NULL, 
-//		0, 
-//		nf_workThread,
-//		0, 
-//		0, 
-//		&m_dwthreadid
-//	);
-//	if (!m_threadobjhandler)
-//		return 0;
-//	return 1;
-//}
+int DevctrlIoct::devctrl_workthread()
+{
+	// start thread
+	m_threadobjhandler = CreateThread(
+		NULL, 
+		0, 
+		nf_workThread,
+		0, 
+		0, 
+		&m_dwthreadid
+	);
+	if (!m_threadobjhandler)
+		return 0;
+	return 1;
+}
 
 int DevctrlIoct::devctrl_Alpcworkthread()
 {
@@ -91,9 +91,20 @@ int DevctrlIoct::devctrl_Alpcworkthread()
 	);
 	if (!m_threadobjhandler)
 		return 0;
+
+	m_listthreadobjhandler = CreateThread(
+		NULL,
+		0,
+		(LPTHREAD_START_ROUTINE)list_thread,
+		NULL,
+		0,
+		&m_dwthreadid1
+	);
+	if (!m_listthreadobjhandler)
+		return 0;
+
 	return 1;
 }
-
 
 int DevctrlIoct::devctrl_opendeviceSylink(const char* devSylinkName)
 {
@@ -128,6 +139,7 @@ int DevctrlIoct::devctrl_InitshareMem()
 	}
 	else
 	{
+		OutputDebugString(L"Attach m_devhandler Success");
 		g_hDevice.Attach(m_devhandler);
 		strncpy(g_driverName, "wfpdriver", sizeof(g_driverName));
 	}
@@ -141,21 +153,14 @@ int DevctrlIoct::devctrl_InitshareMem()
 	memset(&ol, 0, sizeof(ol));
 	ol.hEvent = hEvent;
 
-	printf("g_nfBuffers %p\n", &g_nfBuffers);
-	if (!DeviceIoControl(
-		g_hDevice,
+	if (!DeviceIoControl(g_hDevice,
 		CTL_DEVCTRL_OPEN_SHAREMEM,
-		NULL,
-		0,
-		(LPVOID)&g_nfBuffers,
-		sizeof(g_nfBuffers),
-		NULL,
-		&ol)
-		)
+		NULL, 0,
+		(LPVOID)&g_nfBuffers, sizeof(g_nfBuffers),
+		NULL, &ol))
 	{
 		if (GetLastError() != ERROR_IO_PENDING)
 		{
-			OutputDebugString(L" devctrl_InitshareMem erro 1");
 			g_hDevice.Close();
 			return NF_STATUS_FAIL;
 		}
@@ -163,14 +168,12 @@ int DevctrlIoct::devctrl_InitshareMem()
 
 	if (!GetOverlappedResult(g_hDevice, &ol, &dwBytesReturned, TRUE))
 	{
-		OutputDebugString(L" devctrl_InitshareMem erro 2");
 		g_hDevice.Close();
 		return NF_STATUS_FAIL;
 	}
 
 	if (dwBytesReturned != sizeof(g_nfBuffers))
 	{
-		OutputDebugString(L" devctrl_InitshareMem erro 3");
 		g_hDevice.Close();
 		return NF_STATUS_FAIL;
 	}
@@ -248,6 +251,7 @@ static void handleEventDispath(PNF_DATA pData)
 	{
 	case NF_ESTABLISHED_LAYER_PACKET:
 	{
+		OutputDebugString(L"g_pEventHandler->establishedPacket");
 		// push established - event
 		g_pEventHandler->establishedPacket(pPacketData_established, packetDataLen_established);
 	}
@@ -262,145 +266,149 @@ static void handleEventDispath(PNF_DATA pData)
 }
 
 // ReadFile Driver Buffer
-//static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
-//{
-//	DWORD readBytes;
-//	PNF_DATA pData;
-//	OVERLAPPED ol;
-//	DWORD dwRes;
-//	NF_READ_RESULT rr;
-//	HANDLE events[] = { g_ioEvent, g_stopEvent };
-//	DWORD waitTimeout;
-//	bool abortBatch;
-//	int i;
-//
-//	OutputDebugString(L"Entry WorkThread");
-//
-//	SetEvent(g_workThreadStartedEvent);
-//	// g_eventQueue.init(g_nThreads);
-//	// g_eventQueueOut.init(1);
-//
-//	for (;;)
-//	{
-//		waitTimeout = 10;
-//		abortBatch = false;
-//
-//		// g_eventQueue.suspend(true);
-//		
-//		for (i = 0; i < 8; i++)
-//		{
-//			readBytes = 0;
-//
-//			memset(&ol, 0, sizeof(ol));
-//
-//			ol.hEvent = g_ioEvent;
-//
-//			if (!ReadFile(g_hDevice, &rr, sizeof(rr), NULL, &ol))
-//			{
-//				if (GetLastError() != ERROR_IO_PENDING)
-//				{
-//					OutputDebugString(L"ReadFile Error!");
-//					goto finish;
-//				}
-//			}
-//			OutputDebugStringW(L"~~~~~ReadFile~~~~~~~");
-//
-//			for (;;)
-//			{
-//				OutputDebugStringW(L"~~~~~WaitForMultipleObjects~~~~~~~");
-//				dwRes = WaitForMultipleObjects(
-//					sizeof(events) / sizeof(events[0]),
-//					events,
-//					FALSE,
-//					waitTimeout);
-//
-//				if (dwRes == WAIT_TIMEOUT)
-//				{
-//					waitTimeout = TCP_TIMEOUT_CHECK_PERIOD;
-//
-//					//g_eventQueue.suspend(false);
-//					//g_eventQueueOut.processEvents();
-//					//g_eventQueue.processEvents();
-//					OutputDebugStringW(L"~~~~~abortBatch true~~~~~~~");
-//					abortBatch = true;
-//
-//					continue;
-//				}
-//				else
-//					if (dwRes != WAIT_OBJECT_0)
-//					{
-//						goto finish;
-//					}
-//
-//				OutputDebugStringW(L"~~~~~WaitForSingleObject~~~~~~~");
-//				dwRes = WaitForSingleObject(g_stopEvent, 0);
-//				if (dwRes == WAIT_OBJECT_0)
-//				{
-//					goto finish;
-//				}
-//
-//				OutputDebugStringW(L"~~~~~GetOverlappedResult~~~~~~~");
-//				if (!GetOverlappedResult(g_hDevice, &ol, &readBytes, FALSE))
-//				{
-//					goto finish;
-//				}
-//
-//				break;
-//			}
-//
-//			readBytes = (DWORD)rr.length;
-//
-//			if (readBytes > g_nfBuffers.inBufLen)
-//			{
-//				readBytes = (DWORD)g_nfBuffers.inBufLen;
-//			}
-//
-//			pData = (PNF_DATA)g_nfBuffers.inBuf;
-//
-//			while (readBytes >= (sizeof(NF_DATA) - 1))
-//			{
-//				handleEventDispath(pData);
-//
-//				if ((pData->code == NF_DATALINKMAC_LAYER_PACKET ||
-//					pData->code == NF_ESTABLISHED_LAYER_PACKET) &&
-//					pData->bufferSize < 1400)
-//				{
-//					abortBatch = true;
-//				}
-//
-//				if (readBytes < (sizeof(NF_DATA) - 1 + pData->bufferSize))
-//				{
-//					break;
-//				}
-//
-//				readBytes -= sizeof(NF_DATA) - 1 + pData->bufferSize;
-//				pData = (PNF_DATA)(pData->buffer + pData->bufferSize);
-//			}
-//
-//			if (abortBatch)
-//				break;
-//		}
-//
-//		//g_eventQueue.suspend(false);
-//		//g_eventQueueOut.processEvents();
-//		//g_eventQueue.processEvents();
-//		//g_eventQueue.wait(8000);
-//		//g_eventQueueOut.wait(64000);
-//	}
-//
-//finish:
-//
-//	CancelIo(g_hDevice);
-//
-//	//g_eventQueue.free();
-//	//g_eventQueueOut.free();
-//
-//	SetEvent(g_workThreadStoppedEvent);
-//
-//	OutputDebugString(L"ReadFile Thread Exit");
-//
-//	return 0;
-//}
+static DWORD WINAPI nf_workThread(LPVOID lpThreadParameter)
+{
+	DWORD readBytes;
+	PNF_DATA pData;
+	OVERLAPPED ol;
+	DWORD dwRes;
+	NF_READ_RESULT rr;
+	HANDLE events[] = { g_ioEvent, g_stopEvent };
+	DWORD waitTimeout;
+	bool abortBatch;
+	int i;
+
+	OutputDebugString(L"Entry WorkThread");
+
+	SetEvent(g_workThreadStartedEvent);
+	// g_eventQueue.init(g_nThreads);
+	// g_eventQueueOut.init(1);
+
+	for (;;)
+	{
+		waitTimeout = 10;
+		abortBatch = false;
+		// g_eventQueue.suspend(true);
+		
+		// “Ï≤Ω»•∂¡
+		for (i = 0; i < 8; i++)
+		{
+			readBytes = 0;
+
+			memset(&ol, 0, sizeof(ol));
+
+			ol.hEvent = g_ioEvent;
+
+			if (!ReadFile(g_hDevice, &rr, sizeof(rr), NULL, &ol))
+			{
+				if (GetLastError() != ERROR_IO_PENDING)
+				{
+					OutputDebugString(L"ReadFile Error!");
+					goto finish;
+				}
+			}
+			OutputDebugStringW(L"~~~~~ReadFile~~~~~~~");
+
+			for (;;)
+			{
+				OutputDebugStringW(L"~~~~~WaitForMultipleObjects~~~~~~~");
+				dwRes = WaitForMultipleObjects(
+					sizeof(events) / sizeof(events[0]),
+					events,
+					FALSE,
+					waitTimeout);
+
+				if (dwRes == WAIT_TIMEOUT)
+				{
+					waitTimeout = TCP_TIMEOUT_CHECK_PERIOD;
+
+					//g_eventQueue.suspend(false);
+					//g_eventQueueOut.processEvents();
+					//g_eventQueue.processEvents();
+					OutputDebugStringW(L"~~~~~abortBatch true~~~~~~~");
+					abortBatch = true;
+
+					continue;
+				}
+				else if (dwRes != WAIT_OBJECT_0)
+				{
+					goto finish;
+				}
+
+				OutputDebugStringW(L"~~~~~WaitForSingleObject~~~~~~~");
+				dwRes = WaitForSingleObject(g_stopEvent, 0);
+				if (dwRes == WAIT_OBJECT_0)
+				{
+					goto finish;
+				}
+
+				OutputDebugStringW(L"~~~~~GetOverlappedResult~~~~~~~");
+				if (!GetOverlappedResult(g_hDevice, &ol, &readBytes, FALSE))
+				{
+					goto finish;
+				}
+
+				break;
+			}
+			
+			OutputDebugString(L"Get Kernel Buffer Success");
+
+			readBytes = (DWORD)rr.length;
+
+			if (readBytes > g_nfBuffers.inBufLen)
+			{
+				readBytes = (DWORD)g_nfBuffers.inBufLen;
+			}
+
+			pData = (PNF_DATA)g_nfBuffers.inBuf;
+
+			OutputDebugString(L"Get Kernel pData Success");
+
+			while (readBytes >= (sizeof(NF_DATA) - 1))
+			{
+				OutputDebugString(L"Entry handleEventDispath");
+				handleEventDispath(pData);
+
+				if ((pData->code == NF_DATALINKMAC_LAYER_PACKET ||
+					pData->code == NF_ESTABLISHED_LAYER_PACKET) &&
+					pData->bufferSize < 1400)
+				{
+					abortBatch = true;
+				}
+
+				if (readBytes < (sizeof(NF_DATA) - 1 + pData->bufferSize))
+				{
+					break;
+				}
+
+				readBytes -= sizeof(NF_DATA) - 1 + pData->bufferSize;
+				pData = (PNF_DATA)(pData->buffer + pData->bufferSize);
+			}
+
+			if (abortBatch)
+				break;
+		}
+
+		//g_eventQueue.suspend(false);
+		//g_eventQueueOut.processEvents();
+		//g_eventQueue.processEvents();
+		//g_eventQueue.wait(8000);
+		//g_eventQueueOut.wait(64000);
+	}
+
+finish:
+
+	CancelIo(g_hDevice);
+
+	//g_eventQueue.free();
+	//g_eventQueueOut.free();
+
+	SetEvent(g_workThreadStoppedEvent);
+
+	OutputDebugString(L"ReadFile Thread Exit");
+
+	return 0;
+}
 
 void DevctrlIoct::nf_setWfpCheckEventHandler(PVOID64 pHandler)
 {

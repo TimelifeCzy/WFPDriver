@@ -274,29 +274,19 @@ NTSTATUS devctrl_read1(PIRP irp, PIO_STACK_LOCATION irpSp)
 		if (irp->Cancel &&
 			IoSetCancelRoutine(irp, NULL))
 		{
-			//
-			// IRP has been canceled but the I/O manager did not manage to call our cancel routine. This
-			// code is safe referencing the Irp->Cancel field without locks because of the memory barriers
-			// in the interlocked exchange sequences used by IoSetCancelRoutine.
-			//
-
 			status = STATUS_CANCELLED;
-			// IRP should be completed after releasing the lock
 		}
 		else
 		{
-			//
-			//  Add this IRP to the list of pended Read IRPs
-			//
+			// pending请求
 			IoMarkIrpPending(irp);
-
 			InsertTailList(&g_pendedIoRequests, &irp->Tail.Overlay.ListEntry);
-
 			status = STATUS_PENDING;
 		}
 
 		sl_unlock(&lh);
 
+		// 激活处理事件
 		KeSetEvent(&g_ioThreadEvent, IO_NO_INCREMENT, FALSE);
 
 		break;
@@ -407,7 +397,7 @@ NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp)
 
 	case IRP_MJ_READ:
 	{
-		return devctrl_read(irp, irpSp);
+		return devctrl_read1(irp, irpSp);
 	}
 
 	case IRP_MJ_WRITE:
@@ -458,25 +448,25 @@ NTSTATUS devctrl_init()
 		FALSE
 	);
 
-	//status = PsCreateSystemThread(
-	//	&threadHandle,
-	//	THREAD_ALL_ACCESS,
-	//	NULL,
-	//	NULL,
-	//	NULL,
-	//	devctrl_ioThread,
-	//	NULL
-	//);
-
 	status = PsCreateSystemThread(
 		&threadHandle,
 		THREAD_ALL_ACCESS,
 		NULL,
 		NULL,
 		NULL,
-		devctrl_AlpcThread,
+		devctrl_ioThread,
 		NULL
 	);
+
+	//status = PsCreateSystemThread(
+	//	&threadHandle,
+	//	THREAD_ALL_ACCESS,
+	//	NULL,
+	//	NULL,
+	//	NULL,
+	//	devctrl_AlpcThread,
+	//	NULL
+	//);
 
 	if (NT_SUCCESS(status))
 	{
@@ -637,7 +627,8 @@ NTSTATUS devtrl_popDataLinkData(UINT64* pOffset)
 	if (!pdatalinkbuf)
 		return STATUS_UNSUCCESSFUL;
 	
-	sl_lock(&g_sIolock, &lh);
+	sl_lock(&pdatalinkbuf->lock, &lh);
+	
 	do {
 
 		if (IsListEmpty(&pdatalinkbuf->pendedPackets))
@@ -703,13 +694,14 @@ NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
 	if (!pestablishedbuf)
 		return STATUS_UNSUCCESSFUL;
 
-	sl_lock(&g_sIolock, &lh);
+	sl_lock(&pestablishedbuf->lock, &lh);
 	do {
 
 		if (IsListEmpty(&pestablishedbuf->pendedPackets))
 			break;
 
 		pEntry = RemoveHeadList(&pestablishedbuf->pendedPackets);
+
 		dataSize = g_inBuf.bufferLength - *pOffset;
 		if ((g_inBuf.bufferLength - *pOffset) < dataSize)
 		{
@@ -734,7 +726,6 @@ NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
 		}
 
 		*pOffset += dataSize;
-
 	} while (FALSE);
 
 	sl_unlock(&lh);
@@ -761,6 +752,8 @@ UINT64 devctrl_fillBuffer()
 	UINT64		offset = 0;
 	NTSTATUS	status = STATUS_SUCCESS;
 	KLOCK_QUEUE_HANDLE lh;
+
+	DbgPrint(L"devctrl_fillBuffer");
 
 	sl_lock(&g_sIolock, &lh);
 
@@ -801,6 +794,65 @@ UINT64 devctrl_fillBuffer()
 	return offset;
 }
 
+void devctrl_serviceReads()
+{
+	PIRP                irp = NULL;
+	PLIST_ENTRY         pIrpEntry;
+	BOOLEAN             foundPendingIrp = FALSE;
+	PNF_READ_RESULT		pResult;
+	KLOCK_QUEUE_HANDLE lh;
+
+	sl_lock(&g_sIolock, &lh);
+
+	if (IsListEmpty(&g_pendedIoRequests) || IsListEmpty(&g_IoQueryHead))
+	{
+		sl_unlock(&lh);
+		return;
+	}
+
+	pIrpEntry = g_pendedIoRequests.Flink;
+	while (pIrpEntry != &g_pendedIoRequests)
+	{
+		irp = CONTAINING_RECORD(pIrpEntry, IRP, Tail.Overlay.ListEntry);
+
+		if (IoSetCancelRoutine(irp, NULL))
+		{
+			// 移除
+			RemoveEntryList(pIrpEntry);
+			foundPendingIrp = TRUE;
+			break;
+		}
+		else
+		{
+			KdPrint((DPREFIX"devctrl_serviceReads: skipping cancelled IRP\n"));
+			pIrpEntry = pIrpEntry->Flink;
+		}
+	}
+
+	sl_unlock(&lh);
+
+	if (!foundPendingIrp)
+	{
+		return;
+	}
+
+	pResult = (PNF_READ_RESULT)MmGetSystemAddressForMdlSafe(irp->MdlAddress, HighPagePriority);
+	if (!pResult)
+	{
+		irp->IoStatus.Information = 0;
+		irp->IoStatus.Status = STATUS_INSUFFICIENT_RESOURCES;
+		IoCompleteRequest(irp, IO_NO_INCREMENT);
+		return;
+	}
+
+	pResult->length = devctrl_fillBuffer();
+
+	irp->IoStatus.Status = STATUS_SUCCESS;
+	irp->IoStatus.Information = sizeof(NF_READ_RESULT);
+	IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+}
+
 void devctrl_ioThread(
 	IN PVOID StartContext
 )
@@ -826,50 +878,7 @@ void devctrl_ioThread(
 			break;
 		}
 
-		sl_lock(&g_sIolock, &lh);
-
-		if (!IsListEmpty(&g_IoQueryHead) && !IsListEmpty(&g_pendedIoRequests))
-		{
-
-			pIrpEntry = g_pendedIoRequests.Flink;
-			while (pIrpEntry != &g_pendedIoRequests)
-			{
-				irp = CONTAINING_RECORD(pIrpEntry, IRP, Tail.Overlay.ListEntry);
-				if (IoSetCancelRoutine(irp, NULL))
-				{
-					RemoveEntryList(pIrpEntry);
-					foundPendingIrp = TRUE;
-					break;
-				}
-				else
-				{
-					KdPrint((DPREFIX"devctrl_serviceReads: skipping cancelled IRP\n"));
-					pIrpEntry = pIrpEntry->Flink;
-				}
-			}
-
-			sl_unlock(&lh);
-
-			if (!foundPendingIrp)
-			{
-				return;
-			}
-
-			pResult = (PNF_READ_RESULT)MmGetSystemAddressForMdlSafe(irp->MdlAddress, HighPagePriority);
-			if (!pResult)
-			{
-				irp->IoStatus.Information = 0;
-				irp->IoStatus.Status = STATUS_INSUFFICIENT_RESOURCES;
-				IoCompleteRequest(irp, IO_NO_INCREMENT);
-				return;
-			}
-
-			pResult->length = devctrl_fillBuffer();
-
-			irp->IoStatus.Status = STATUS_SUCCESS;
-			irp->IoStatus.Information = sizeof(NF_READ_RESULT);
-			IoCompleteRequest(irp, IO_NO_INCREMENT);
-		}
+		devctrl_serviceReads();
 	}
 
 	PsTerminateSystemThread(STATUS_SUCCESS);
@@ -1033,6 +1042,7 @@ void devctrl_AlpcThread(
 		sl_unlock(&lh);
 
 		// Send Msg to Client(DLL)
+		// IRPL BUG
 		sl_lock(&g_sIolock, &lh);
 		switch (pData->code)
 		{
@@ -1043,7 +1053,6 @@ void devctrl_AlpcThread(
 		break;
 		case NF_FLOWCTX_PACKET:
 		{
-			DbgBreakPoint();
 			AlpcSendflowEstablishedMsg(pData, buffer_total_lens);
 		}
 		break;

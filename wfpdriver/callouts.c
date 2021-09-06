@@ -56,17 +56,24 @@ typedef struct _NF_CALLOUT_FLOWESTABLISHED_INFO
 		UINT32 ipv4LocalAddr;
 	};
 #pragma warning(pop)
+	UINT16 toLocalPort;
 
 	UINT8 protocol;
-
 	UINT64 flowId;
 	UINT16 layerId;
 	UINT32 calloutId;
 
-	UINT8* toRemoteAddr;
+#pragma warning(push)
+#pragma warning(disable: 4201) //NAMELESS_STRUCT_UNION
+	union
+	{
+		FWP_BYTE_ARRAY16 RemoteAddr;
+		UINT32 ipv4toRemoteAddr;
+	};
+#pragma warning(pop)
 	UINT16 toRemotePort;
 
-	WCHAR  processPath[260];
+	// WCHAR  processPath[260];
 	UINT64 processId;
 
 	LONG refCount;
@@ -138,10 +145,15 @@ helper_callout_classFn_flowEstablished(
 
 	if (flowContextLocal->addressFamily == AF_INET)
 	{
-			flowContextLocal->ipv4LocalAddr =
+		flowContextLocal->ipv4LocalAddr =
 			RtlUlongByteSwap(
 				inFixedValues->incomingValue\
 				[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_LOCAL_ADDRESS].value.uint32
+			);
+		flowContextLocal->ipv4toRemoteAddr =
+			RtlUlongByteSwap(
+				inFixedValues->incomingValue\
+				[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_REMOTE_ADDRESS].value.uint32
 			);
 		flowContextLocal->protocol =
 			inFixedValues->incomingValue\
@@ -155,29 +167,24 @@ helper_callout_classFn_flowEstablished(
 			[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_LOCAL_ADDRESS].value.byteArray16,
 			sizeof(FWP_BYTE_ARRAY16)
 		);
+		RtlCopyMemory(
+			(UINT8*)&flowContextLocal->RemoteAddr,
+			inFixedValues->incomingValue\
+			[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_REMOTE_ADDRESS].value.byteArray16,
+			sizeof(FWP_BYTE_ARRAY16)
+		);
 		flowContextLocal->protocol =
 			inFixedValues->incomingValue\
 			[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_PROTOCOL].value.uint8;
 	}
 
-	// pid - path
+	flowContextLocal->toLocalPort =
+		inFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_LOCAL_PORT].value.uint16;
+	flowContextLocal->toRemotePort =
+		inFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_REMOTE_PORT].value.uint16;
 	flowContextLocal->processId = inMetaValues->processId;
-	memcpy(flowContextLocal->processPath, inMetaValues->processPath->data, inMetaValues->processPath->size);
+	// memcpy(flowContextLocal->processPath, inMetaValues->processPath->data, inMetaValues->processPath->size);
 
-	// Context Layer to Mac DataLink Layer
-	// 不关联支捕获
-	//sl_lock(&g_flowspinlock, &lh);
-	//status = FwpsFlowAssociateContext(
-	//	flowContextLocal->flowId,
-	//	flowContextLocal->layerId,
-	//	flowContextLocal->calloutId,
-	//	(UINT64)flowHead
-	//);
-	//sl_unlock(&lh);
-	//if (!NT_SUCCESS(status))
-	//{
-	//	goto Exit;
-	//}
 	establishedctx_pushflowestablishedctx(flowContextLocal, sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO));
 	
 	classifyOut->actionType = FWP_ACTION_PERMIT;

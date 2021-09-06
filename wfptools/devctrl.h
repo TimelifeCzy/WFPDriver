@@ -21,7 +21,9 @@ private:
 	HANDLE m_devhandler;
 	HANDLE m_threadobjhandler;
 	HANDLE m_alpcthreadobjhandler;
+	HANDLE m_listthreadobjhandler;
 	DWORD  m_dwthreadid;
+	DWORD  m_dwthreadid1;
 
 	// ·¢ËÍ¿ØÖÆÂë
 	int devctrl_sendioct(const int ioctcode);

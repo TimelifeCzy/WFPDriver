@@ -1,7 +1,8 @@
 ﻿#include "ntbasic.h"
 #include "HlprServerAlpc.h"
-#include <stdio.h>
-#include <vector>
+#include <queue>
+#include <map>
+#include <mutex>
 #include "nfdriver.h"
 
 using namespace std;
@@ -10,7 +11,12 @@ using namespace std;
 int waitDriverConnectAlpcHandle = 0;
 
 // 负责保存进程pid, 防止注入多次
-vector<int> PidVec;
+queue<NF_CALLOUT_FLOWESTABLISHED_INFO> flowestablished_list;
+static mutex g_mutx;
+// int(port): udp + 1000000 ||  tcp + 2000000
+map<int, NF_CALLOUT_FLOWESTABLISHED_INFO> map_processinfo;
+static mutex g_maptx;
+
 
 // HlprServerPip pipsrvobj;
 
@@ -260,7 +266,10 @@ void DispatchMsgHandle(
 		if (Msg->buffer && Msg->bufferSize)
 		{
 			memcpy(&flowestablished_info, Msg->buffer, Msg->bufferSize);
-			OutputDebugString(flowestablished_info.processPath);
+			g_mutx.lock();
+			flowestablished_list.push(flowestablished_info);
+			g_mutx.unlock();
+			OutputDebugString(L"flowestablished_list push OK");
 		}
 	}
 	break;
@@ -288,6 +297,7 @@ void AlpcPortStart(
 )
 {
 	ALPC_PORT_ATTRIBUTES    serverPortAttr;
+	ALPC_PORT_ATTRIBUTES    clientPortAttr;
 	OBJECT_ATTRIBUTES       objPort;
 	UNICODE_STRING          usPortName;
 	PORT_MESSAGE            pmRequest;
@@ -302,17 +312,14 @@ void AlpcPortStart(
 
 	OutputDebugString(L"Entry Alpc Thread Callback");
 
-	// 初始化PidVec/保证回调中能进入循环
-	PidVec.push_back(8888);
-
 	RtlInitUnicodeString(&usPortName, PortName);
 	InitializeObjectAttributes(&objPort, &usPortName, 0, 0, 0);
-	RtlSecureZeroMemory(&serverPortAttr, sizeof(serverPortAttr));
-	serverPortAttr.MaxMessageLength = 0x1024;
+	RtlSecureZeroMemory(&serverPortAttr, sizeof(serverPortAttr)); 
+	serverPortAttr.MaxMessageLength = 0x500;
 	ntRet = NtAlpcCreatePort(&hPort, &objPort, &serverPortAttr);
 	if (!ntRet)
 	{
-		nLen = 0x1024;
+		nLen = 0x500;
 		ntRet = NtAlpcSendWaitReceivePort(hPort, 0, NULL, NULL, &pmReceive, (PULONG)&nLen, NULL, NULL);
 		// Analysis universMsg
 		UNIVERMSG* Msg = (UNIVERMSG*)((BYTE*)&pmReceive + sizeof(PORT_MESSAGE));
@@ -328,9 +335,6 @@ void AlpcPortStart(
 				pmRequest.MessageId = pmReceive.MessageId;
 				UNIVERMSG universmg = { 0, };
 				universmg.ControlId = ALPC_DRIVER_CONNECTSERVER_RECV;
-				// r3事件句柄
-				//if (Injecteventhandle)
-				//	universmg.Event = (ULONG)Injecteventhandle;
 				pmRequest.u1.s1.DataLength = sizeof(UNIVERMSG);
 				pmRequest.u1.s1.TotalLength = pmRequest.u1.s1.DataLength + sizeof(PORT_MESSAGE);
 				lpMem = CreateMsgMem(&pmRequest, sizeof(UNIVERMSG), &universmg);
@@ -343,7 +347,7 @@ void AlpcPortStart(
 				hPort,
 				0,
 				NULL,
-				NULL,
+				&serverPortAttr,
 				NULL,
 				(PPORT_MESSAGE)lpMem,
 				NULL,
@@ -404,11 +408,35 @@ void AlpcSendtoClientMsg(
 	lpMem = NULL;
 }
 
-void InitEvent()
+
+void list_thread(
+	wchar_t* PortName)
 {
-	//
-	// Init Event Handle
-	// 
-	Injecteventhandle = CreateEvent(NULL, FALSE, FALSE, NULL);
-	Monitoreventhandle = CreateEvent(NULL, FALSE, FALSE, NULL);
+	OutputDebugString(L"Entry Map Thread ~");
+	DWORD localport = 0;
+	for (;;)
+	{
+		while (!flowestablished_list.empty()) {
+			localport = 0;
+			auto iter = flowestablished_list.front();
+			localport = iter.toLocalPort;
+			if (iter.protocol == IPPROTO_TCP)
+				localport += 2000000;
+			else if(iter.protocol == IPPROTO_UDP)
+				localport += 1000000;
+
+			g_maptx.lock();
+			map_processinfo[localport] = iter;
+			g_maptx.unlock();
+
+			OutputDebugString(L"Insert Map Success~");
+
+			g_mutx.lock();
+			flowestablished_list.pop();
+			g_mutx.unlock();
+		}
+
+		Sleep(2000);
+	}
+
 }
