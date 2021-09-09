@@ -6,6 +6,7 @@
 #include "datalinkctx.h"
 #include "establishedctx.h"
 #include "HlprDriverAlpc.h"
+#include "callouts.h"
 
 #define NF_TCP_PACKET_BUF_SIZE 8192
 #define NF_UDP_PACKET_BUF_SIZE 2 * 65536
@@ -362,6 +363,12 @@ NTSTATUS devctrl_close(PIRP irp, PIO_STACK_LOCATION irpSp)
 
 	UNREFERENCED_PARAMETER(irpSp);
 
+	// cloes需要清理 - 关闭共享内存
+	devctrl_setmonitor(0);
+	establishedctx_clean();
+	datalinkctx_clean();
+	devctrl_clean();
+
 	irp->IoStatus.Information = 0;
 	irp->IoStatus.Status = status;
 	IoCompleteRequest(irp, IO_NO_INCREMENT);
@@ -369,13 +376,10 @@ NTSTATUS devctrl_close(PIRP irp, PIO_STACK_LOCATION irpSp)
 	return status;
 }
 
-NTSTATUS devctrl_setmonitor(IRP* irp, int flag)
+NTSTATUS devctrl_setmonitor(int flag)
 {
 	// 设置打印标签
 	g_monitorflag = flag;
-	irp->IoStatus.Status = STATUS_SUCCESS;
-	irp->IoStatus.Information = 0;
-	IoCompleteRequest(irp, IO_NO_INCREMENT);
 	return STATUS_SUCCESS;
 }
 
@@ -404,17 +408,20 @@ NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp)
 		return devctrl_write(irp, irpSp);
 
 	case IRP_MJ_CLOSE:
+	{
 		return devctrl_close(irp, irpSp);
+	}
+
 
 	case IRP_MJ_DEVICE_CONTROL:
 		switch (irpSp->Parameters.DeviceIoControl.IoControlCode)
 		{
 		case CTL_DEVCTRL_ENABLE_MONITOR:
-			return devctrl_setmonitor(irp, 1);
-
+			devctrl_setmonitor(1);
+			break;
 		case CTL_DEVCTRL_DISENTABLE_MONITOR:
-			return devctrl_setmonitor(irp, 0);
-
+			devctrl_setmonitor(0);
+			break;
 		case CTL_DEVCTRL_OPEN_SHAREMEM:
 		{	
 			return devctrl_openMem(DeviceObject, irp, irpSp);
@@ -490,7 +497,7 @@ NTSTATUS devctrl_init()
 	return status;
 }
 
-NTSTATUS devctrl_free()
+VOID devctrl_clean()
 {
 	PNF_QUEUE_ENTRY pQuery = NULL;
 	KLOCK_QUEUE_HANDLE lh;
@@ -505,9 +512,17 @@ NTSTATUS devctrl_free()
 		sl_lock(&g_sIolock, &lh);
 	}
 	sl_unlock(&lh);
-	ExDeleteNPagedLookasideList(&g_IoQueryList);
 
-	// thread
+	devctrl_freeSharedMemory(&g_inBuf);
+	devctrl_freeSharedMemory(&g_outBuf);
+}
+
+VOID devctrl_free()
+{
+	devctrl_clean();
+
+	ExDeleteNPagedLookasideList(&g_IoQueryList);
+	
 	if (g_ioThreadObject)
 	{
 		KeSetEvent(&g_ioThreadEvent, IO_NO_INCREMENT, FALSE);
@@ -524,13 +539,10 @@ NTSTATUS devctrl_free()
 		g_ioThreadObject = NULL;
 	}
 
-	devctrl_freeSharedMemory(&g_inBuf);
-	devctrl_freeSharedMemory(&g_outBuf);
-
 	return STATUS_SUCCESS;
 }
 
-void devctrl_setShutdown()
+VOID devctrl_setShutdown()
 {
 	KLOCK_QUEUE_HANDLE lh;
 
@@ -721,7 +733,6 @@ NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
 		pData->id = 520;
 		pData->bufferSize = pEntry->dataLength;
 
-		// DbgBreakPoint();
 		if (pEntry->dataBuffer != NULL) {
 			memcpy(pData->buffer, pEntry->dataBuffer, pEntry->dataLength);
 		}
@@ -797,7 +808,6 @@ UINT64 devctrl_fillBuffer()
 
 void devctrl_serviceReads()
 {
-	// DbgBreakPoint();
 	PIRP                irp = NULL;
 	PLIST_ENTRY         pIrpEntry;
 	BOOLEAN             foundPendingIrp = FALSE;

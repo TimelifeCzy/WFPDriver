@@ -66,22 +66,6 @@
 extern DWORD g_dwLogLevel;
 extern DWORD g_monitorflag;
 
-#define LogOutput(t,...) if (g_dwLogLevel & t) DbgPrint(## __VA_ARGS__)
-#define LogOutputEx(b,t,...) if ((!(g_dwLogLevel & 0x1000000) || (b)) && (g_dwLogLevel & t)) DbgPrint(## __VA_ARGS__)
-#define IS_TCP_GAME_FLT() (g_dwLogLevel & 0x10000000)
-#define IS_UDP_GAME_FLT() (g_dwLogLevel & 0x20000000)
-#define IS_GAME_LOG() (g_dwLogLevel & 0x1000000)
-#define IS_TCP_GAME_CHK() (g_dwLogLevel & 0x11000000)
-#define IS_UDP_GAME_CHK() (g_dwLogLevel & 0x21000000)
-
-#define WPP_CONTROL_GUIDS \
-    WPP_DEFINE_CONTROL_GUID(CtlGuid,(a7f09d73, 5ac6, 4b8b, 8a33, e7b8c87e4609),  \
-        WPP_DEFINE_BIT(FLAG_INFO))
-
-#define _NF_INTERNALS
-
-BOOLEAN regPathExists(wchar_t* registryPath);
-
 enum _NF_DATA_CODE
 {
 	NF_DATALINK_PACKET = 1,
@@ -108,5 +92,95 @@ typedef UNALIGNED struct _NF_BUFFERS
 	unsigned __int64 outBuf;
 	unsigned __int64 outBufLen;
 } NF_BUFFERS, * PNF_BUFFERS;
+
+typedef struct _ETHERNET_HEADER_
+{
+    unsigned char    pDestinationAddress[6];
+    unsigned char    pSourceAddress[6];
+    unsigned short  type;
+}ETHERNET_HEADER, *PETHERNET_HEADER;
+
+typedef struct _IP_HEADER_V4_
+{
+    union
+    {
+        unsigned char  versionAndHeaderLength;
+        struct
+        {
+            unsigned char  headerLength : 4;
+            unsigned char  version : 4;
+        };
+    };
+    union
+    {
+        unsigned char   typeOfService;
+        unsigned char   differentiatedServicesCodePoint;
+        struct
+        {
+            unsigned char  explicitCongestionNotification : 2;
+            unsigned char  typeOfService6bit : 6;
+        };
+    };
+    unsigned short  totalLength;
+    unsigned short  identification;
+    union
+    {
+        unsigned short  flagsAndFragmentOffset;
+        struct
+        {
+            unsigned short  fragmentOffset : 13;
+            unsigned short  flags : 3;
+        };
+    };
+    unsigned char   timeToLive;
+    unsigned char   protocol;
+    unsigned short  checksum;
+    unsigned char    pSourceAddress[sizeof(unsigned int)];
+    unsigned char    pDestinationAddress[sizeof(unsigned int)];
+}IP_HEADER_V4, * PIP_HEADER_V4;
+
+typedef struct _TCP_HEADER_
+{
+    unsigned short sourcePort;
+    unsigned short destinationPort;
+    unsigned int sequenceNumber;
+    unsigned int acknowledgementNumber;
+    union
+    {
+        unsigned char dataOffsetReservedAndNS;
+        struct
+        {
+            unsigned char nonceSum : 1;
+            unsigned char reserved : 3;
+            unsigned char dataOffset : 4;
+        }dORNS;
+    };
+    union
+    {
+        unsigned char controlBits;
+        struct
+        {
+            unsigned char FIN : 1;
+            unsigned char SYN : 1;
+            unsigned char RST : 1;
+            unsigned char PSH : 1;
+            unsigned char ACK : 1;
+            unsigned char URG : 1;
+            unsigned char ECE : 1;
+            unsigned char CWR : 1;
+        };
+    };
+    unsigned short window;
+    unsigned short checksum;
+    unsigned short urgentPointer;
+}TCP_HEADER, * PTCP_HEADER;
+
+typedef struct _UDP_HEADER_
+{
+    unsigned short sourcePort;
+    unsigned short destinationPort;
+    unsigned short length;
+    unsigned short checksum;
+}UDP_HEADER, * PUDP_HEADER;
 
 #endif

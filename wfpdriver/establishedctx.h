@@ -16,6 +16,7 @@ typedef struct _NF_FLOWESTABLISHED_DATA
 
 NTSTATUS establishedctx_init();
 VOID establishedctx_free();
+VOID establishedctx_clean();
 
 NF_FLOWESTABLISHED_BUFFER* establishedctx_packallocte(int lens);
 VOID establishedctx_packfree(PNF_FLOWESTABLISHED_BUFFER pPacket);

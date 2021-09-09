@@ -102,7 +102,7 @@ NTSTATUS datalinkctx_pushdata(
 	return status;
 }
 
-NTSTATUS datalinkctx_free()
+VOID datalinkctx_clean()
 {
 	KLOCK_QUEUE_HANDLE lh;
 	PNF_DATALINK_BUFFER pDataCtl;
@@ -122,7 +122,10 @@ NTSTATUS datalinkctx_free()
 		sl_lock(&g_sdataIoQueue, &lh);
 	}
 	sl_unlock(&lh);
+}
 
+VOID datalinkctx_free()
+{
+	datalinkctx_clean();
 	ExDeleteNPagedLookasideList(&g_dataLinkPacketsList);
-	return STATUS_SUCCESS;
 }

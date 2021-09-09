@@ -26,5 +26,23 @@
     <ClInclude Include="devctrl.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="sync.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="threadpool.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="nfdriver.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="nfevents.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="ntbasic.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="nf_api.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

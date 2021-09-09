@@ -16,12 +16,10 @@ typedef struct _NF_DATALINK_DATA
 
 NF_DATALINK_DATA* datalink_get();
 NTSTATUS datalinkctx_init();
-NTSTATUS datalinkctx_free();
+VOID datalinkctx_free();
+VOID datalinkctx_clean();
 PNF_DATALINK_BUFFER datalinkctx_packallocate(int lens);
 VOID datalinkctx_packfree(PNF_DATALINK_BUFFER pPacket);
-NTSTATUS datalinkctx_pushdata(
-	PVOID64 packet,
-	int lens
-);
+NTSTATUS datalinkctx_pushdata(PVOID64 packet, int lens);
 
 #endif // !_DATALINKCTX_H

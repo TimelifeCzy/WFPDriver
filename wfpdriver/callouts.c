@@ -83,9 +83,40 @@ typedef struct _NF_CALLOUT_FLOWESTABLISHED_INFO
 /*
 * Callouts Buffer - DataLink Layer
 */
+typedef struct _ETHERNET_HEADER_INFO
+{
+	unsigned char    pDestinationAddress[6];
+	unsigned char    pSourceAddress[6];
+	unsigned short  type;
+}ETHERNET_HEADER_INFO, * PETHERNET_HEADER_INFO;
+
 typedef struct _NF_CALLOUT_MAC_INFO
 {
 	int code;
+	ADDRESS_FAMILY addressFamily;
+#pragma warning(push)
+#pragma warning(disable: 4201) //NAMELESS_STRUCT_UNION
+	union
+	{
+		FWP_BYTE_ARRAY16 localAddr;
+		UINT32 ipv4LocalAddr;
+	};
+#pragma warning(pop)
+	UINT16 toLocalPort;
+
+	UINT8 protocol;
+
+#pragma warning(push)
+#pragma warning(disable: 4201) //NAMELESS_STRUCT_UNION
+	union
+	{
+		FWP_BYTE_ARRAY16 RemoteAddr;
+		UINT32 ipv4toRemoteAddr;
+	};
+#pragma warning(pop)
+	UINT16 toRemotePort;
+
+	ETHERNET_HEADER_INFO mac_info;
 }NF_CALLOUT_MAC_INFO, * PNF_CALLOUT_MAC_INFO;
 
 static NPAGED_LOOKASIDE_LIST	g_callouts_flowCtxPacketsLAList;
@@ -238,8 +269,19 @@ helper_callout_classFn_mac(
 )
 {
 	PNF_CALLOUT_MAC_INFO pdatalink_info = NULL;
+
+	NET_BUFFER* pNetBuffer = NULL;
+	// NET_BUFFER_LIST* pNetBufferList = NULL;
+
 	KLOCK_QUEUE_HANDLE lh;
 	NTSTATUS status = STATUS_SUCCESS;
+	DWORD IsOutBound = 0;
+
+	/*
+		FWPS_FIELD_INBOUND_MAC_FRAME_ETHERNET_MAC_LOCAL_ADDRESS
+		FWPS_FIELD_INBOUND_MAC_FRAME_ETHERNET_MAC_REMOTE_ADDRESS
+		FWPS_FIELD_INBOUND_MAC_FRAME_ETHERNET_ETHER_TYPE
+	*/
 
 	// 关闭监控的时候，不做任何操作
 	if (g_monitorflag == 0)
@@ -252,33 +294,149 @@ helper_callout_classFn_mac(
 		return;
 	}
 
-	if (!layerData)
+	if (!inFixedValues && !inMetaValues &&!layerData)
 	{
 		status = STATUS_UNSUCCESSFUL;
 		goto Exit;
 	}
 
-	if (FWPS_LAYER_INBOUND_MAC_FRAME_ETHERNET == inFixedValues->layerId ||
-		FWPS_LAYER_OUTBOUND_MAC_FRAME_ETHERNET == inFixedValues->layerId
-		)
+	// 赋值失败
+	switch (inFixedValues->layerId)
 	{
-		pdatalink_info = ExAllocateFromNPagedLookasideList(&g_callouts_datalinkPacktsList);
-		if (!pdatalink_info)
+	case FWPS_LAYER_INBOUND_MAC_FRAME_ETHERNET:
+		IsOutBound = 1;
+		break;
+	case FWPS_LAYER_OUTBOUND_MAC_FRAME_ETHERNET:
+		IsOutBound = 2;
+		break;
+	default:
+	{
+		classifyOut->actionType = FWP_ACTION_PERMIT;
+		if (filter->flags & FWPS_FILTER_FLAG_CLEAR_ACTION_RIGHT)
 		{
-			status = STATUS_NO_MEMORY;
-			goto Exit;
+			classifyOut->flags &= ~FWPS_RIGHT_ACTION_WRITE;
 		}
-		
-		RtlSecureZeroMemory(pdatalink_info, sizeof(PNF_CALLOUT_MAC_INFO));
-
-		/*
-			Mac Buffer Save
-		*/
-		pdatalink_info->code = 1;
-
-		// push_data to datalink --> devctrl --> read I/O complate to r3
-		datalinkctx_pushdata(pdatalink_info, sizeof(PNF_CALLOUT_MAC_INFO));
+		IsOutBound = 0;
+		return;
 	}
+	}
+
+	pdatalink_info = ExAllocateFromNPagedLookasideList(&g_callouts_datalinkPacktsList);
+	if (!pdatalink_info)
+	{
+		status = STATUS_NO_MEMORY;
+		goto Exit;
+	}
+
+	RtlSecureZeroMemory(pdatalink_info, sizeof(NF_CALLOUT_MAC_INFO));
+	
+	DbgBreakPoint();
+
+	pdatalink_info->addressFamily =
+		(inFixedValues->layerId == FWPS_LAYER_INBOUND_MAC_FRAME_ETHERNET) ? 1 : 2;
+
+	DWORD FWPS_FIELD_IN_OUTBOUND_MAC_LOCAL_ADDRESS = 0;
+	DWORD FWPS_FIELD_IN_OUTBOUND_MAC_REMOTE_ADDRESS = 0;
+	DWORD FWPS_FIELD_IN_OUTBOUND_MAC_FRAME_ETHERNET_ETHER_TYPE = 0;
+	switch (IsOutBound)
+	{
+	case 1:
+	{
+		FWPS_FIELD_IN_OUTBOUND_MAC_LOCAL_ADDRESS = FWPS_FIELD_INBOUND_MAC_FRAME_ETHERNET_MAC_LOCAL_ADDRESS;
+		FWPS_FIELD_IN_OUTBOUND_MAC_REMOTE_ADDRESS = FWPS_FIELD_INBOUND_MAC_FRAME_ETHERNET_MAC_REMOTE_ADDRESS;
+		FWPS_FIELD_IN_OUTBOUND_MAC_FRAME_ETHERNET_ETHER_TYPE = FWPS_FIELD_INBOUND_MAC_FRAME_ETHERNET_ETHER_TYPE;
+	}
+	break;
+	case 2:
+	{
+		FWPS_FIELD_IN_OUTBOUND_MAC_LOCAL_ADDRESS = FWPS_FIELD_OUTBOUND_MAC_FRAME_ETHERNET_MAC_LOCAL_ADDRESS;
+		FWPS_FIELD_IN_OUTBOUND_MAC_REMOTE_ADDRESS = FWPS_FIELD_OUTBOUND_MAC_FRAME_ETHERNET_MAC_REMOTE_ADDRESS;
+		FWPS_FIELD_IN_OUTBOUND_MAC_FRAME_ETHERNET_ETHER_TYPE = FWPS_FIELD_OUTBOUND_MAC_FRAME_ETHERNET_ETHER_TYPE;
+
+	}
+	break;
+	}
+	// Mac Packet  Emtpy
+	RtlCopyMemory(
+		pdatalink_info->mac_info.pSourceAddress,
+		inFixedValues->incomingValue[FWPS_FIELD_IN_OUTBOUND_MAC_LOCAL_ADDRESS].value.byteArray6,
+		sizeof(FWP_BYTE_ARRAY6)
+	);
+	RtlCopyMemory(pdatalink_info->mac_info.pDestinationAddress,
+		inFixedValues->incomingValue[FWPS_FIELD_IN_OUTBOUND_MAC_REMOTE_ADDRESS].value.byteArray6,
+		sizeof(FWP_BYTE_ARRAY6)
+	);
+	pdatalink_info->mac_info.type = inFixedValues->incomingValue[FWPS_FIELD_IN_OUTBOUND_MAC_FRAME_ETHERNET_ETHER_TYPE].value.int16;
+
+	do
+	{
+		// 命中
+		if (IsOutBound == 2)
+		{
+			// MAC FirstNetBuffer
+			NET_BUFFER*  netBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
+			ETHERNET_HEADER* ethernet_mac = NdisGetDataBuffer(netBuffer, sizeof(ETHERNET_HEADER), NULL, 1, 0);
+			NdisAdvanceNetBufferDataStart((NET_BUFFER_LIST*)layerData, sizeof(ETHERNET_HEADER), FALSE, NULL);
+		}
+
+		// IP: ip packet: LocalAddr - RemoteAddr - Proto
+		pNetBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
+		IP_HEADER_V4* pIPHeader = NdisGetDataBuffer(pNetBuffer, sizeof(IP_HEADER_V4), NULL, 1, 0);
+		if (pIPHeader == NULL)
+			break;
+		pdatalink_info->ipv4LocalAddr =
+			RtlUlongByteSwap(pIPHeader->pSourceAddress);
+		pdatalink_info->ipv4toRemoteAddr =
+			RtlUlongByteSwap(pIPHeader->pDestinationAddress);
+		pdatalink_info->protocol = pIPHeader->protocol;
+
+		NdisAdvanceNetBufferDataStart((NET_BUFFER_LIST*)layerData, sizeof(IP_HEADER_V4), FALSE, NULL);
+		// Transport: tcp/udp packet: LocalPort - RemotePort
+		
+		pNetBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
+		switch (pIPHeader->protocol)
+		{
+		case IPPROTO_TCP:
+		{
+			TCP_HEADER* pTcpHeader = NdisGetDataBuffer(pNetBuffer, sizeof(TCP_HEADER), NULL, 1, 0);
+			if (pTcpHeader)
+			{
+				pdatalink_info->toLocalPort = pTcpHeader->sourcePort;
+				pdatalink_info->toRemotePort = pTcpHeader->destinationPort;
+			}
+		};
+		case IPPROTO_UDP:
+		{
+			UDP_HEADER* pUdpHeader = NdisGetDataBuffer(pNetBuffer, sizeof(UDP_HEADER), NULL, 1, 0);
+			if (pUdpHeader)
+			{
+				pdatalink_info->toLocalPort = pUdpHeader->sourcePort;
+				pdatalink_info->toRemotePort = pUdpHeader->destinationPort;
+			}
+		}
+		break;
+		}
+
+	} while (FALSE);
+
+
+	// 恢复原始包
+	pNetBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
+	NdisRetreatNetBufferDataStart(pNetBuffer, sizeof(IP_HEADER_V4), 0, NULL);
+
+	if (IsOutBound == 2)
+	{
+		NET_BUFFER* netBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
+		NdisRetreatNetBufferDataStart(netBuffer, sizeof(ETHERNET_HEADER), 0, NULL);
+	}
+
+	/*
+		Mac Buffer Save
+	*/
+	pdatalink_info->code = NF_DATALINK_PACKET;
+
+	// push_data to datalink --> devctrl --> read I/O complate to r3
+	datalinkctx_pushdata(pdatalink_info, sizeof(NF_CALLOUT_MAC_INFO));
 
 	classifyOut->actionType = FWP_ACTION_PERMIT;
 	if (filter->flags & FWPS_FILTER_FLAG_CLEAR_ACTION_RIGHT)
@@ -561,7 +719,7 @@ callouts_addFilters()
 		);
 		if (!NT_SUCCESS(status))
 			break;
-	/*	
+		
 		status = callout_addDataLinkMacFilter(
 			&g_calloutGuid_inbound_mac_etherent,
 			&FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET,
@@ -579,9 +737,7 @@ callouts_addFilters()
 		);
 		if (!NT_SUCCESS(status))
 			break;
-	*/
-
-
+	
 		//// FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET
 		//status = callout_addDataLinkMacFilter(&g_calloutGuid_inbound_mac_native, &FWPM_LAYER_INBOUND_MAC_FRAME_NATIVE, &subLayer,3);
 		//if (!NT_SUCCESS(status))
@@ -646,27 +802,27 @@ callouts_registerCallouts(
 			g_calloutId_flow_established_v6
 		);
 
-		//// FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET
-		//status = helper_callout_registerCallout(
-		//	deviceObject,
-		//	helper_callout_classFn_mac,
-		//	helper_callout_notifyFn_mac,
-		//	helper_callout_deleteFn_mac,
-		//	&g_calloutGuid_inbound_mac_etherent,
-		//	0,
-		//	g_calloutId_inbound_mac_etherent
-		//);
+		// FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET
+		status = helper_callout_registerCallout(
+			deviceObject,
+			helper_callout_classFn_mac,
+			helper_callout_notifyFn_mac,
+			helper_callout_deleteFn_mac,
+			&g_calloutGuid_inbound_mac_etherent,
+			0,
+			g_calloutId_inbound_mac_etherent
+		);
 
-		//// FWPM_LAYER_OUTBOUND_MAC_FRAME_ETHERNET
-		//status = helper_callout_registerCallout(
-		//	deviceObject,
-		//	helper_callout_classFn_mac,
-		//	helper_callout_notifyFn_mac,
-		//	helper_callout_deleteFn_mac,
-		//	&g_calloutGuid_outbound_mac_etherent,
-		//	0,
-		//	g_calloutId_outbound_mac_etherent
-		//);
+		// FWPM_LAYER_OUTBOUND_MAC_FRAME_ETHERNET
+		status = helper_callout_registerCallout(
+			deviceObject,
+			helper_callout_classFn_mac,
+			helper_callout_notifyFn_mac,
+			helper_callout_deleteFn_mac,
+			&g_calloutGuid_outbound_mac_etherent,
+			0,
+			g_calloutId_outbound_mac_etherent
+		);
 
 		//// FWPM_LAYER_INBOUND_MAC_FRAME_NATIVE
 		//status = helper_callout_registerCallout(
@@ -791,9 +947,7 @@ BOOLEAN callout_init(
 
 	if (!NT_SUCCESS(status))
 	{
-		// callout_free
-		FwpmEngineClose(g_engineHandle);
-		g_engineHandle = NULL;
+		callout_free();
 	}
 
 	return status;
@@ -816,7 +970,7 @@ VOID callout_free()
 	// clean SubLayer
 	FwpmSubLayerDeleteByKey(g_engineHandle, &g_sublayerGuid);
 
-	// clean c
+	// clean
 	FwpmProviderContextDeleteByKey(g_engineHandle,&g_providerGuid);
 
 	if (g_engineHandle)

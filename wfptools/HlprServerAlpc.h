@@ -8,11 +8,6 @@ typedef USHORT ADDRESS_FAMILY;
 
 extern int waitDriverConnectAlpcHandle;
 
-typedef struct FWP_BYTE_ARRAY16_
-{
-	UINT8 byteArray16[16];
-} 	FWP_BYTE_ARRAY16;
-
 // Exec struct
 typedef struct _UNIVERMSG
 {
@@ -54,49 +49,6 @@ typedef struct _MONITORCVEINFO
 	wchar_t cvename[30];	// CVE Name
 	int Pid;				// Process Pid
 }MONITORCVEINFO, *PMONITORCVEINFO;
-
-typedef struct _NF_CALLOUT_FLOWESTABLISHED_INFO
-{
-	ADDRESS_FAMILY addressFamily;
-#pragma warning(push)
-#pragma warning(disable: 4201) //NAMELESS_STRUCT_UNION
-	union
-	{
-		FWP_BYTE_ARRAY16 localAddr;
-		UINT32 ipv4LocalAddr;
-	};
-#pragma warning(pop)
-	UINT16 toLocalPort;
-
-	UINT8 protocol;
-	UINT64 flowId;
-	UINT16 layerId;
-	UINT32 calloutId;
-
-#pragma warning(push)
-#pragma warning(disable: 4201) //NAMELESS_STRUCT_UNION
-	union
-	{
-		FWP_BYTE_ARRAY16 RemoteAddr;
-		UINT32 ipv4toRemoteAddr;
-	};
-#pragma warning(pop)
-	UINT16 toRemotePort;
-
-	WCHAR  processPath[260];
-	int	   processPathSize;
-	UINT64 processId;
-
-	LONG refCount;
-}NF_CALLOUT_FLOWESTABLISHED_INFO, * PNF_CALLOUT_FLOWESTABLISHED_INFO;
-
-/*
-* Callouts Buffer - DataLink Layer
-*/
-typedef struct _NF_CALLOUT_MAC_INFO
-{
-	int code;
-}NF_CALLOUT_MAC_INFO, * PNF_CALLOUT_MAC_INFO;
 
 // extern vector<NF_CALLOUT_FLOWESTABLISHED_INFO> flowestablished_list;
 

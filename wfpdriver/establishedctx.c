@@ -27,7 +27,7 @@ NTSTATUS establishedctx_init()
 	return status;
 }
 
-VOID establishedctx_free()
+VOID establishedctx_clean()
 {
 	KLOCK_QUEUE_HANDLE lh;
 	PNF_FLOWESTABLISHED_BUFFER p_flowdata = NULL;
@@ -41,6 +41,11 @@ VOID establishedctx_free()
 		sl_lock(&g_establishedlock, &lh);
 	}
 	sl_unlock(&lh);
+}
+
+VOID establishedctx_free()
+{
+	establishedctx_clean();
 	ExDeleteNPagedLookasideList(&g_establishedList);
 }
 

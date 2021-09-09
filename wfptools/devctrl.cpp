@@ -6,7 +6,6 @@
 #include "nfdriver.h"
 #include "sync.h"
 #include "nfevents.h"
-#include "HlprServerAlpc.h"
 #include "devctrl.h"
 
 #define TCP_TIMEOUT_CHECK_PERIOD	5 * 1000
@@ -249,7 +248,6 @@ static void handleEventDispath(PNF_DATA pData)
 	case NF_ESTABLISHED_LAYER_PACKET:
 	{
 		// push established - event
-		// printf("Code: %d, id: %d, pData_buffer: 0x%p , size = %d\n\r", pData->code, pData->id, pData->buffer, pData->bufferSize);
 		g_pEventHandler->establishedPacket(pData->buffer, pData->bufferSize);
 	}
 	break;

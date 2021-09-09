@@ -1,2 +1,0 @@
-﻿  Building 'wfpdriver' with toolset 'WindowsKernelModeDriver10.0' and the 'Universal' target platform.
-D:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.CppBuild.targets(486,5): error MSB8040: 此项目需要缓解了 Spectre 漏洞的库。从 Visual Studio 安装程序(单个组件选项卡)为正在使用的任何工具集和体系结构安装它们。了解详细信息: https://aka.ms/Ofhn4c

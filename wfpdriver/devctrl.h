@@ -14,9 +14,11 @@ DRIVER_DISPATCH devctrl_dispatch;
 NTSTATUS devctrl_dispatch(IN PDEVICE_OBJECT DeviceObject, IN PIRP irp);
 
 NTSTATUS devctrl_init();
-NTSTATUS devctrl_free();
-void devctrl_setShutdown();
+VOID devctrl_free();
+VOID devctrl_clean();
+VOID devctrl_setShutdown();
 UINT64 devctrl_fillBuffer();
+NTSTATUS devctrl_setmonitor(int flag);
 NTSTATUS devtrl_popDataLinkData(UINT64* pOffset);
 NTSTATUS devctrl_pushDataLinkCtxBuffer(int code);
 NTSTATUS devctrl_pushFlowCtxBuffer(int code);

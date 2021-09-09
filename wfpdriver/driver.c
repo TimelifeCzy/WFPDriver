@@ -63,7 +63,7 @@ driverUnload(
 
 	KdPrint((DPREFIX"driverUnload\n"));
 	
-	driver_clean();
+	driver_free();
 
 	if (g_bfeStateSubscribeHandle)
 	{
@@ -181,16 +181,15 @@ DriverEntry(
 				break;
 			}
 		}
-
 		return status;
 	} while (FALSE);
 	
 	// Ê§°Ü
-	driver_clean();
+	driver_free();
 	return status;
 }
 
-VOID driver_clean()
+VOID driver_free()
 {
 	NTSTATUS status = STATUS_SUCCESS;
 
@@ -201,6 +200,7 @@ VOID driver_clean()
 		g_deviceControl = NULL;
 	}
 	devctrl_setShutdown();
+	devctrl_setmonitor(0);
 	// flowctl_free();
 	datalinkctx_free();
 	establishedctx_free();

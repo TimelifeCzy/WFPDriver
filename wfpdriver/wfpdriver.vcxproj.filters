@@ -51,6 +51,9 @@
     <ClInclude Include="establishedctx.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="HlprDriverAlpc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="driver.c">
@@ -72,6 +75,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="establishedctx.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="HlprDriverAlpc.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
