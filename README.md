@@ -17,5 +17,3 @@ wfp做FWPM_LAYER_ALE_AUTH_CONNECT_、FWPM_LAYER_ALE_AUTH_LISTEN_映射IP - PORT 
 该代码方案：
 通过established layer (tcp/udp)捕获processpath - pid - ip:port，数据上传应用层建立链路层查询表，mac_frame捕获链路层数据上传应用层。
 应用层做关联，mac_frame通过ip:port来关联established layer的数据(查询表)，从而关联进程信息。
-
-代码不完整版 2021.9.2
