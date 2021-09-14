@@ -139,6 +139,43 @@ typedef struct _IP_HEADER_V4_
     unsigned char    pDestinationAddress[sizeof(unsigned int)];
 }IP_HEADER_V4, * PIP_HEADER_V4;
 
+struct iphdr
+{
+    unsigned char  HdrLength : 4;
+    unsigned char  Version : 4;
+    unsigned char  TOS;
+    unsigned short Length;
+    unsigned short Id;
+    unsigned short FragOff0;
+    unsigned char  TTL;
+    unsigned char  Protocol;
+    unsigned short Checksum;
+    unsigned int SrcAddr;
+    unsigned int DstAddr;
+};
+
+typedef struct _IP_HEADER_V6_
+{
+    union
+    {
+        unsigned char pVersionTrafficClassAndFlowLabel[4];
+        struct
+        {
+            unsigned char r1 : 4;
+            unsigned char value : 4;
+            unsigned char r2;
+            unsigned char r3;
+            unsigned char r4;
+        }version;
+    };
+    unsigned short payloadLength;
+    unsigned char  nextHeader;
+    unsigned char  hopLimit;
+    unsigned char    pSourceAddress[16];
+    unsigned char    pDestinationAddress[16];
+} IP_HEADER_V6, * PIP_HEADER_V6;
+
+
 typedef struct _TCP_HEADER_
 {
     unsigned short sourcePort;

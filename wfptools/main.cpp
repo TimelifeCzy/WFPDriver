@@ -13,7 +13,7 @@ const char devSyLinkName[] = "\\??\\WFPDark";
 
 typedef struct _PROCESS_INFO
 {
-	WCHAR  processPath[260];
+	WCHAR  processPath[MAX_PATH * 2];
 	UINT64 processId;
 }PROCESS_INFO, *PPROCESS_INFO;
 
@@ -41,6 +41,10 @@ class EventHandler : public NF_EventHandler
 		case IPPROTO_UDP:
 			keyLocalPort += 2000000;
 			break;
+		default:
+		{
+			OutputDebugString(L"Other Protocol Erro");
+		}
 		}
 		g_mutx.lock();
 		flowestablished_map[keyLocalPort] = flowestablished_processinfo;
@@ -65,11 +69,6 @@ class EventHandler : public NF_EventHandler
 		wsinfo += L"\r\n";
 		wsinfo += info;
 		OutputDebugString(wsinfo.data());
-		OutputDebugString(wsinfo.data());
-
-		WCHAR szbuf[512] = { 0 };
-		wsprintf(szbuf, L"port=%d, path=%s", int(flowestablished_processinfo.toLocalPort), wsinfo.data());
-		OutputDebugString(szbuf);
 	}
 
 	// 捕获 MAC 链路层数据
@@ -78,6 +77,7 @@ class EventHandler : public NF_EventHandler
 		NF_CALLOUT_MAC_INFO datalink_netinfo;
 		RtlSecureZeroMemory(&datalink_netinfo, sizeof(NF_CALLOUT_MAC_INFO));
 		RtlCopyMemory(&datalink_netinfo, buf, len);
+		
 		OutputDebugString(L"-------------------------------------");
 		OutputDebugStringA((LPCSTR)datalink_netinfo.mac_info.pSourceAddress);
 		OutputDebugStringA((LPCSTR)datalink_netinfo.mac_info.pDestinationAddress);

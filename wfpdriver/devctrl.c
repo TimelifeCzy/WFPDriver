@@ -605,7 +605,7 @@ NTSTATUS devctrl_pushFlowCtxBuffer(int code)
 	{
 	case NF_FLOWCTX_PACKET:
 	{
-		pQuery = ExAllocateFromNPagedLookasideList(&g_IoQueryList);
+		pQuery = (PNF_QUEUE_ENTRY)ExAllocateFromNPagedLookasideList(&g_IoQueryList);
 		if (!pQuery)
 		{
 			status = STATUS_UNSUCCESSFUL;
@@ -644,10 +644,14 @@ NTSTATUS devtrl_popDataLinkData(UINT64* pOffset)
 	do {
 
 		if (IsListEmpty(&pdatalinkbuf->pendedPackets))
+		{
+			status = STATUS_UNSUCCESSFUL;
 			break;
-			
+		}
+	
 		pEntry = RemoveHeadList(&pdatalinkbuf->pendedPackets);
 
+		pPacketlens = pEntry->dataLength;
 		dataSize = sizeof(NF_DATA) - 1 + pPacketlens;
 		if ((g_inBuf.bufferLength - *pOffset) < dataSize)
 		{
@@ -655,18 +659,12 @@ NTSTATUS devtrl_popDataLinkData(UINT64* pOffset)
 			break;
 		}
 
-		pPacketlens = pEntry->dataLength;
-		if (!pPacketlens)
-		{
-			return STATUS_NO_MEMORY;
-		}
-
 		pData = (PNF_DATA)((char*)g_inBuf.kernelVa + *pOffset);
 		pData->code = NF_DATALINK_PACKET;
 		pData->id = 0;
 		pData->bufferSize = pEntry->dataLength;
 
-		if (pEntry->dataBuffer != NULL) {
+		if (pEntry->dataBuffer) {
 			memcpy(pData->buffer, pEntry->dataBuffer, pEntry->dataLength);
 		}
 		
@@ -689,7 +687,7 @@ NTSTATUS devtrl_popDataLinkData(UINT64* pOffset)
 			sl_unlock(&lh);
 		}
 	}
-	return STATUS_SUCCESS;
+	return status;
 }
 
 NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
@@ -707,21 +705,16 @@ NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
 		return STATUS_UNSUCCESSFUL;
 
 	sl_lock(&pestablishedbuf->lock, &lh);
-	do {
 
-		if (IsListEmpty(&pestablishedbuf->pendedPackets))
-			break;
-
-		pEntry = RemoveHeadList(&pestablishedbuf->pendedPackets);
+	while (!IsListEmpty(&pestablishedbuf->pendedPackets))
+	{
+		pEntry = (PNF_FLOWESTABLISHED_BUFFER)RemoveHeadList(&pestablishedbuf->pendedPackets);
 
 		pPacketlens = pEntry->dataLength;
-		if (!pPacketlens)
-		{
-			return STATUS_NO_MEMORY;
-		}
 
 		dataSize = sizeof(NF_DATA) - 1 + pPacketlens;
-		if ((g_inBuf.bufferLength - *pOffset) < dataSize)
+		
+		if ((g_inBuf.bufferLength - *pOffset - 1) < dataSize)
 		{
 			status = STATUS_NO_MEMORY;
 			break;
@@ -733,12 +726,12 @@ NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
 		pData->id = 520;
 		pData->bufferSize = pEntry->dataLength;
 
-		if (pEntry->dataBuffer != NULL) {
+		if (pEntry->dataBuffer) {
 			memcpy(pData->buffer, pEntry->dataBuffer, pEntry->dataLength);
 		}
 
 		*pOffset += dataSize;
-	} while (FALSE);
+	}
 
 	sl_unlock(&lh);
 
@@ -746,7 +739,7 @@ NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
 	{
 		if (NT_SUCCESS(status))
 		{
-			 establishedctx_packfree(pEntry);
+			establishedctx_packfree(pEntry);
 		}
 		else
 		{
@@ -755,7 +748,8 @@ NTSTATUS devtrl_popFlowestablishedData(UINT64* pOffset)
 			sl_unlock(&lh);
 		}
 	}
-	return STATUS_SUCCESS;
+
+	return status;
 }
 
 UINT64 devctrl_fillBuffer()
@@ -765,13 +759,12 @@ UINT64 devctrl_fillBuffer()
 	NTSTATUS	status = STATUS_SUCCESS;
 	KLOCK_QUEUE_HANDLE lh;
 
-	DbgPrint(L"devctrl_fillBuffer");
-
 	sl_lock(&g_sIolock, &lh);
 
 	while (!IsListEmpty(&g_IoQueryHead))
 	{
 		pEntry = (PNF_QUEUE_ENTRY)RemoveHeadList(&g_IoQueryHead);
+
 		sl_unlock(&lh);
 
 		switch (pEntry->code)
@@ -799,6 +792,7 @@ UINT64 devctrl_fillBuffer()
 			InsertHeadList(&g_IoQueryHead, &pEntry->entry);
 			break;
 		}
+
 		ExFreeToNPagedLookasideList(&g_IoQueryList, pEntry);
 	}
 
@@ -891,194 +885,6 @@ void devctrl_ioThread(
 		}
 
 		devctrl_serviceReads();
-	}
-
-	PsTerminateSystemThread(STATUS_SUCCESS);
-}
-
-void devctrl_AlpcThread(
-	IN PVOID StartContext
-)
-{
-	PIRP                irp = NULL;
-	PLIST_ENTRY         pIrpEntry;
-	BOOLEAN             foundPendingIrp = FALSE;
-	PNF_READ_RESULT		pResult;
-	KLOCK_QUEUE_HANDLE lh;
-	PNF_QUEUE_ENTRY		pEntry;
-
-	PNF_FLOWESTABLISHED_DATA pestablishedbuf = NULL;
-	PNF_FLOWESTABLISHED_BUFFER pEntryFlowestablishedBuffer = NULL;
-	
-	PNF_DATALINK_DATA pdatalinkbuf = NULL;
-	PNF_DATALINK_BUFFER pEntryDataLinkBuffer = NULL;
-
-	PNF_DATA pData = NULL;
-
-	NTSTATUS status = STATUS_SUCCESS;
-
-	int buffer_total_lens = 0;
-
-	for (;;)
-	{
-		KeWaitForSingleObject(
-			&g_ioThreadEvent,
-			Executive,
-			KernelMode,
-			FALSE,
-			NULL
-		);
-
-		if (devctrl_isShutdown())
-		{
-			break;
-		}
-
-		sl_lock(&g_sIolock, &lh);
-
-		if (!IsListEmpty(&g_IoQueryHead))
-		{
-			pEntry = RemoveHeadList(&g_IoQueryHead);
-			sl_unlock(&lh);
-
-			switch (pEntry->code)
-			{
-			case NF_DATALINK_PACKET:
-			{
-				pdatalinkbuf = datalink_get();
-				if (!pdatalinkbuf)
-					continue;
-
-				sl_lock(&g_sIolock, &lh);
-				do {
-
-					if (IsListEmpty(&pdatalinkbuf->pendedPackets))
-						break;
-					buffer_total_lens = sizeof(NF_DATA) + pEntryDataLinkBuffer->dataLength;
-					pData = ExAllocatePoolWithTag(NonPagedPool, buffer_total_lens, 'SESE');
-					if (!pData)
-						break;
-					RtlSecureZeroMemory(pData, sizeof(NF_DATA));
-
-					pEntryDataLinkBuffer = RemoveHeadList(&pdatalinkbuf->pendedPackets);
-
-					pData->code = NF_DATALINK_PACKET;
-					pData->id = 0;
-					pData->bufferSize = pEntryDataLinkBuffer->dataLength;
-
-					if (pEntryDataLinkBuffer->dataBuffer != NULL) {
-						memcpy(pData->buffer, &pEntryDataLinkBuffer->dataBuffer, pEntryDataLinkBuffer->dataLength);
-					}
-				} while (FALSE);
-
-				sl_unlock(&lh);
-
-				if (pEntryDataLinkBuffer)
-				{
-					if (NT_SUCCESS(status))
-					{
-						datalinkctx_packfree(pEntryDataLinkBuffer);
-						pEntryDataLinkBuffer = NULL;
-					}
-					else
-					{
-						sl_lock(&pdatalinkbuf->lock, &lh);
-						InsertHeadList(&pdatalinkbuf->pendedPackets, &pEntryDataLinkBuffer->pEntry);
-						sl_unlock(&lh);
-					}
-				}
-			}
-			break;
-			case NF_FLOWCTX_PACKET:
-			{
-				// pop flowctx data
-				pestablishedbuf = establishedctx_get();
-				if (!pestablishedbuf)
-					continue;
-
-				sl_lock(&g_sIolock, &lh);
-				do {
-
-					if (IsListEmpty(&pestablishedbuf->pendedPackets))
-					{
-						status = STATUS_UNSUCCESSFUL;
-						break;
-					}
-					
-					pEntryFlowestablishedBuffer = RemoveHeadList(&pestablishedbuf->pendedPackets);
-					sl_unlock(&lh);
-
-					buffer_total_lens = sizeof(NF_DATA) + pEntryFlowestablishedBuffer->dataLength;
-					pData = ExAllocatePoolWithTag(NonPagedPool, buffer_total_lens, 'SESE');
-					if (pData == NULL)
-					{
-						status = STATUS_UNSUCCESSFUL;
-						break;
-					}
-					RtlSecureZeroMemory(pData, sizeof(NF_DATA) + pEntryFlowestablishedBuffer->dataLength);
-
-					pData->code = NF_FLOWCTX_PACKET;
-					pData->bufferSize = pEntryFlowestablishedBuffer->dataLength;
-
-					if (pEntryFlowestablishedBuffer->dataBuffer != NULL) {
-						memcpy(pData->buffer, &pEntryFlowestablishedBuffer->dataBuffer, pEntryFlowestablishedBuffer->dataLength);
-					}
-
-				} while (FALSE);
-
-				if (pEntryFlowestablishedBuffer)
-				{
-					if (NT_SUCCESS(status))
-					{
-						establishedctx_packfree(pEntryFlowestablishedBuffer);
-						pEntryFlowestablishedBuffer = NULL;
-					}
-					else
-					{
-						sl_lock(&pdatalinkbuf->lock, &lh);
-						InsertHeadList(&pestablishedbuf->pendedPackets, &pEntryFlowestablishedBuffer->pEntry);
-						sl_unlock(&lh);
-					}
-				}
-			}
-			break;
-			}
-			
-			// Clean Query Io Queue
-			ExFreeToNPagedLookasideList(&g_IoQueryList, pEntry);
-			pEntry = NULL;
-
-			sl_lock(&g_sIolock, &lh);
-		}
-		
-		sl_unlock(&lh);
-
-		// Send Msg to Client(DLL)
-		// IRPL BUG
-		sl_lock(&g_sIolock, &lh);
-		switch (pData->code)
-		{
-		case NF_DATALINK_PACKET:
-		{
-			AlpcSendDataLinkStructMsg(pData, buffer_total_lens);
-		}
-		break;
-		case NF_FLOWCTX_PACKET:
-		{
-			AlpcSendflowEstablishedMsg(pData, buffer_total_lens);
-		}
-		break;
-		}
-		sl_unlock(&lh);
-
-		// Clean pData Buffer
-		if (pData)
-		{
-			ExFreePoolWithTag(pData, 'SESE');
-			pData = NULL;
-		}
-
-		buffer_total_lens = 0;
 	}
 
 	PsTerminateSystemThread(STATUS_SUCCESS);

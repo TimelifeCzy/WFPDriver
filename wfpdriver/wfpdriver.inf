@@ -47,7 +47,7 @@
     ServiceBinary = %12%\wfpdriver.sys                      ; %WinDir%\System32\Drivers\wfpdriver.sys
 
 [Strings]
-    ProviderString     = "TODO-Set-Provider"
+    ProviderString     = "Hangzhou Shunwang Technology Co.,Ltd"
     wfpdriverDisk        = "wfptools Installation Disk"
     wfpdriverServiceDesc = "wfptools Callout Driver"
     wfpdriverServiceName = "wfpdriver"

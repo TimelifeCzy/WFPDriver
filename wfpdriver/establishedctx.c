@@ -3,14 +3,12 @@
 #include "establishedctx.h"
 
 static NPAGED_LOOKASIDE_LIST	g_establishedList;
-static KSPIN_LOCK				g_establishedlock;
 static NF_FLOWESTABLISHED_DATA	g_flowesobj;
 
 NTSTATUS establishedctx_init()
 {
 	NTSTATUS status = STATUS_SUCCESS;
 
-	KeInitializeSpinLock(&g_establishedlock);
 	ExInitializeNPagedLookasideList(
 		&g_establishedList,
 		NULL,
@@ -31,14 +29,14 @@ VOID establishedctx_clean()
 {
 	KLOCK_QUEUE_HANDLE lh;
 	PNF_FLOWESTABLISHED_BUFFER p_flowdata = NULL;
-	sl_lock(&g_establishedlock, &lh);
+	sl_lock(&g_flowesobj.lock, &lh);
 	while (!IsListEmpty(&g_flowesobj.pendedPackets))
 	{
 		p_flowdata = RemoveHeadList(&g_flowesobj.pendedPackets);
 		sl_unlock(&lh);
 
 		ExFreeToNPagedLookasideList(&g_establishedList, p_flowdata);
-		sl_lock(&g_establishedlock, &lh);
+		sl_lock(&g_flowesobj.lock, &lh);
 	}
 	sl_unlock(&lh);
 }
@@ -55,7 +53,7 @@ NF_FLOWESTABLISHED_BUFFER* establishedctx_packallocte(int lens)
 		return NULL;
 
 	PNF_FLOWESTABLISHED_BUFFER pNfdatalink = NULL;
-	pNfdatalink = ExAllocateFromNPagedLookasideList(&g_establishedList);
+	pNfdatalink = (PNF_FLOWESTABLISHED_BUFFER)ExAllocateFromNPagedLookasideList(&g_establishedList);
 	if (!pNfdatalink)
 		return FALSE;
 
@@ -104,8 +102,8 @@ NTSTATUS establishedctx_pushflowestablishedctx(
 	flowbuf->dataLength = lens;
 	RtlCopyMemory(flowbuf->dataBuffer, pBuffer, lens);
 
-	sl_lock(&g_establishedlock, &lh);
-	InsertHeadList(&g_flowesobj.pendedPackets, flowbuf);
+	sl_lock(&g_flowesobj.lock, &lh);
+	InsertHeadList(&g_flowesobj.pendedPackets, &flowbuf->pEntry);
 	sl_unlock(&lh);
 
 	devctrl_pushFlowCtxBuffer(NF_FLOWCTX_PACKET);

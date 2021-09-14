@@ -25,6 +25,8 @@ static GUID		g_providerGuid;
 
 static GUID		g_calloutGuid_flow_established_v4;
 static GUID		g_calloutGuid_flow_established_v6;
+static GUID		g_calloutGuid_ale_connectredirect_v4;
+static GUID		g_calloutGuid_ale_connectredirect_v6;
 static GUID		g_calloutGuid_inbound_mac_etherent;
 static GUID		g_calloutGuid_outbound_mac_etherent;
 static GUID		g_calloutGuid_inbound_mac_native;
@@ -36,6 +38,8 @@ static UINT32	g_calloutId_inbound_mac_etherent;
 static UINT32	g_calloutId_outbound_mac_etherent;
 static UINT32	g_calloutId_inbound_mac_native;
 static UINT32	g_calloutId_outbound_mac_native;
+static UINT32	g_calloutId_ale_connectredirect_v4;
+static UINT32	g_calloutId_ale_connectredirect_v6;
 
 static GUID		g_sublayerGuid;
 static HANDLE	g_engineHandle = NULL;
@@ -73,7 +77,7 @@ typedef struct _NF_CALLOUT_FLOWESTABLISHED_INFO
 #pragma warning(pop)
 	UINT16 toRemotePort;
 
-	WCHAR  processPath[260];
+	WCHAR  processPath[MAX_PATH * 2];
 	int	   processPathSize;
 	UINT64 processId;
 
@@ -190,30 +194,34 @@ helper_callout_classFn_flowEstablished(
 		flowContextLocal->protocol =
 			inFixedValues->incomingValue\
 			[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_PROTOCOL].value.uint8;
+		flowContextLocal->toLocalPort =
+			inFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_LOCAL_PORT].value.uint16;
+		flowContextLocal->toRemotePort =
+			inFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_REMOTE_PORT].value.uint16;
 	}
 	else
 	{
 		RtlCopyMemory(
 			(UINT8*)&flowContextLocal->localAddr,
 			inFixedValues->incomingValue\
-			[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_LOCAL_ADDRESS].value.byteArray16,
-			sizeof(FWP_BYTE_ARRAY16)
+			[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_LOCAL_ADDRESS].value.byteArray16->byteArray16,
+			16
 		);
 		RtlCopyMemory(
 			(UINT8*)&flowContextLocal->RemoteAddr,
 			inFixedValues->incomingValue\
-			[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_REMOTE_ADDRESS].value.byteArray16,
-			sizeof(FWP_BYTE_ARRAY16)
+			[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_REMOTE_ADDRESS].value.byteArray16->byteArray16,
+			16
 		);
 		flowContextLocal->protocol =
 			inFixedValues->incomingValue\
 			[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_PROTOCOL].value.uint8;
+		flowContextLocal->toLocalPort =
+			inFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_LOCAL_PORT].value.uint16;
+		flowContextLocal->toRemotePort =
+			inFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V6_IP_REMOTE_PORT].value.uint16;
 	}
 
-	flowContextLocal->toLocalPort =
-		inFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_LOCAL_PORT].value.uint16;
-	flowContextLocal->toRemotePort =
-		inFixedValues->incomingValue[FWPS_FIELD_ALE_FLOW_ESTABLISHED_V4_IP_REMOTE_PORT].value.uint16;
 	flowContextLocal->processId = inMetaValues->processId;
 	flowContextLocal->processPathSize = inMetaValues->processPath->size;
 	RtlCopyMemory(flowContextLocal->processPath, inMetaValues->processPath->data, inMetaValues->processPath->size);
@@ -256,7 +264,6 @@ helper_callout_notifyFn_flowEstablished(
 	return status;
 }
 
-
 VOID
 helper_callout_classFn_mac(
 	_In_ const FWPS_INCOMING_VALUES* inFixedValues,
@@ -270,18 +277,13 @@ helper_callout_classFn_mac(
 {
 	PNF_CALLOUT_MAC_INFO pdatalink_info = NULL;
 
-	NET_BUFFER* pNetBuffer = NULL;
 	// NET_BUFFER_LIST* pNetBufferList = NULL;
 
 	KLOCK_QUEUE_HANDLE lh;
 	NTSTATUS status = STATUS_SUCCESS;
 	DWORD IsOutBound = 0;
-
-	/*
-		FWPS_FIELD_INBOUND_MAC_FRAME_ETHERNET_MAC_LOCAL_ADDRESS
-		FWPS_FIELD_INBOUND_MAC_FRAME_ETHERNET_MAC_REMOTE_ADDRESS
-		FWPS_FIELD_INBOUND_MAC_FRAME_ETHERNET_ETHER_TYPE
-	*/
+	NET_BUFFER* netBuffer = NULL;
+	UINT32 ipHeaderSize = 0;
 
 	// 关闭监控的时候，不做任何操作
 	if (g_monitorflag == 0)
@@ -330,7 +332,7 @@ helper_callout_classFn_mac(
 
 	RtlSecureZeroMemory(pdatalink_info, sizeof(NF_CALLOUT_MAC_INFO));
 	
-	DbgBreakPoint();
+	// DbgBreakPoint();
 
 	pdatalink_info->addressFamily =
 		(inFixedValues->layerId == FWPS_LAYER_INBOUND_MAC_FRAME_ETHERNET) ? 1 : 2;
@@ -370,65 +372,68 @@ helper_callout_classFn_mac(
 
 	do
 	{
+		netBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
 		// 命中
 		if (IsOutBound == 2)
 		{
 			// MAC FirstNetBuffer
-			NET_BUFFER*  netBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
-			ETHERNET_HEADER* ethernet_mac = NdisGetDataBuffer(netBuffer, sizeof(ETHERNET_HEADER), NULL, 1, 0);
-			NdisAdvanceNetBufferDataStart((NET_BUFFER_LIST*)layerData, sizeof(ETHERNET_HEADER), FALSE, NULL);
+			// ETHERNET_HEADER* ethernet_mac = (ETHERNET_HEADER*)NdisGetDataBuffer(netBuffer, sizeof(ETHERNET_HEADER), NULL, 1, 0);
+			NdisAdvanceNetBufferDataStart(netBuffer, sizeof(ETHERNET_HEADER), FALSE, NULL);
 		}
 
 		// IP: ip packet: LocalAddr - RemoteAddr - Proto
-		pNetBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
-		IP_HEADER_V4* pIPHeader = NdisGetDataBuffer(pNetBuffer, sizeof(IP_HEADER_V4), NULL, 1, 0);
+		IP_HEADER_V4* pIPHeader = (IP_HEADER_V4*)NdisGetDataBuffer(netBuffer, sizeof(struct iphdr), 0, 1, 0);
 		if (pIPHeader == NULL)
 			break;
-		pdatalink_info->ipv4LocalAddr =
-			RtlUlongByteSwap(pIPHeader->pSourceAddress);
-		pdatalink_info->ipv4toRemoteAddr =
-			RtlUlongByteSwap(pIPHeader->pDestinationAddress);
-		pdatalink_info->protocol = pIPHeader->protocol;
+		if (pIPHeader->version == 4)
+		{
+			pdatalink_info->ipv4LocalAddr =
+				RtlUlongByteSwap(pIPHeader->pSourceAddress);
+			pdatalink_info->ipv4toRemoteAddr =
+				RtlUlongByteSwap(pIPHeader->pDestinationAddress);
+			pdatalink_info->protocol = pIPHeader->protocol;
 
-		NdisAdvanceNetBufferDataStart((NET_BUFFER_LIST*)layerData, sizeof(IP_HEADER_V4), FALSE, NULL);
-		// Transport: tcp/udp packet: LocalPort - RemotePort
-		
-		pNetBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
-		switch (pIPHeader->protocol)
-		{
-		case IPPROTO_TCP:
-		{
-			TCP_HEADER* pTcpHeader = NdisGetDataBuffer(pNetBuffer, sizeof(TCP_HEADER), NULL, 1, 0);
-			if (pTcpHeader)
+			ipHeaderSize = pIPHeader->headerLength * 4;
+
+			// Transport: tcp/udp packet: LocalPort - RemotePort
+			switch (pIPHeader->protocol)
 			{
-				pdatalink_info->toLocalPort = pTcpHeader->sourcePort;
-				pdatalink_info->toRemotePort = pTcpHeader->destinationPort;
+			case IPPROTO_TCP:
+			{
+				NdisAdvanceNetBufferDataStart(netBuffer, ipHeaderSize, FALSE, NULL);
+				TCP_HEADER* pTcpHeader = (PTCP_HEADER)NdisGetDataBuffer(netBuffer, sizeof(TCP_HEADER), NULL, sizeof(UINT16), 0);
+				if (pTcpHeader)
+				{
+					pdatalink_info->toLocalPort = pTcpHeader->sourcePort;
+					pdatalink_info->toRemotePort = pTcpHeader->destinationPort;
+				}
+				NdisRetreatNetBufferDataStart(netBuffer, ipHeaderSize, 0, NULL);
+			};
+			break;
+			case IPPROTO_UDP:
+			{
+				NdisAdvanceNetBufferDataStart(netBuffer, ipHeaderSize, FALSE, NULL);
+				UDP_HEADER* pUdpHeader = (PUDP_HEADER)NdisGetDataBuffer(netBuffer, sizeof(UDP_HEADER), 0, 1, 0);
+				if (pUdpHeader)
+				{
+					pdatalink_info->toLocalPort = pUdpHeader->sourcePort;
+					pdatalink_info->toRemotePort = pUdpHeader->destinationPort;
+				}
+				NdisRetreatNetBufferDataStart(netBuffer, ipHeaderSize, 0, NULL);
 			}
-		};
-		case IPPROTO_UDP:
-		{
-			UDP_HEADER* pUdpHeader = NdisGetDataBuffer(pNetBuffer, sizeof(UDP_HEADER), NULL, 1, 0);
-			if (pUdpHeader)
-			{
-				pdatalink_info->toLocalPort = pUdpHeader->sourcePort;
-				pdatalink_info->toRemotePort = pUdpHeader->destinationPort;
+			break;
 			}
 		}
-		break;
-		}
-
 	} while (FALSE);
 
 
-	// 恢复原始包
-	pNetBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
-	NdisRetreatNetBufferDataStart(pNetBuffer, sizeof(IP_HEADER_V4), 0, NULL);
-
 	if (IsOutBound == 2)
 	{
-		NET_BUFFER* netBuffer = NET_BUFFER_LIST_FIRST_NB((NET_BUFFER_LIST*)layerData);
-		NdisRetreatNetBufferDataStart(netBuffer, sizeof(ETHERNET_HEADER), 0, NULL);
+		// 恢复原始包
+		NdisRetreatNetBufferDataStart((PNET_BUFFER)netBuffer, sizeof(ETHERNET_HEADER), 0, NULL);
 	}
+
+	IsOutBound = 0;
 
 	/*
 		Mac Buffer Save
@@ -471,6 +476,7 @@ helper_callout_notifyFn_mac(
 )
 {
 	NTSTATUS status = STATUS_SUCCESS;
+	UNREFERENCED_PARAMETER(notifyType);
 	UNREFERENCED_PARAMETER(filter);
 	UNREFERENCED_PARAMETER(filterKey);
 	return status;
@@ -487,6 +493,144 @@ VOID helper_callout_deleteFn_mac(
 	UNREFERENCED_PARAMETER(layerId);
 	UNREFERENCED_PARAMETER(calloutId);
 	UNREFERENCED_PARAMETER(flowContext);
+}
+
+VOID
+helper_callout_classFn_connectredirect(
+	IN const FWPS_INCOMING_VALUES* inFixedValues,
+	IN const FWPS_INCOMING_METADATA_VALUES* inMetaValues,
+	IN VOID* packet,
+	IN const void* classifyContext,
+	IN const FWPS_FILTER* filter,
+	IN UINT64 flowContext,
+	OUT FWPS_CLASSIFY_OUT* classifyOut)
+{
+	if (g_monitorflag == 0)
+	{
+		classifyOut->actionType = FWP_ACTION_PERMIT;
+		return;
+	}
+
+	if ((classifyOut->rights & FWPS_RIGHT_ACTION_WRITE) == 0)
+	{
+		return;
+	}
+
+	if (!packet ||
+		!classifyContext ||
+		(inFixedValues->incomingValue[FWPS_FIELD_ALE_CONNECT_REDIRECT_V4_FLAGS].value.uint32 & FWP_CONDITION_FLAG_IS_REAUTHORIZE))
+	{
+		classifyOut->actionType = FWP_ACTION_PERMIT;
+		return;
+	}
+
+	NTSTATUS status = STATUS_SUCCESS;
+	KLOCK_QUEUE_HANDLE lh;
+	PNF_CALLOUT_FLOWESTABLISHED_INFO flowContextLocal = NULL;
+
+	// Connect V4
+
+	flowContextLocal = (PNF_CALLOUT_FLOWESTABLISHED_INFO)ExAllocateFromNPagedLookasideList(&g_callouts_flowCtxPacketsLAList);
+	if (flowContextLocal == NULL)
+	{
+		status = STATUS_NO_MEMORY;
+		goto Exit;
+	}
+	RtlSecureZeroMemory(flowContextLocal, sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO));
+
+	flowContextLocal->refCount = 1;
+	// 家族协议
+	flowContextLocal->addressFamily =
+		(inFixedValues->layerId == FWPS_LAYER_ALE_CONNECT_REDIRECT_V4) ? AF_INET : AF_INET6;
+
+	flowContextLocal->flowId = inMetaValues->flowHandle;
+	flowContextLocal->layerId = FWPS_LAYER_ALE_CONNECT_REDIRECT_V4;
+	flowContextLocal->calloutId = &g_calloutGuid_ale_connectredirect_v4;
+
+	if (flowContextLocal->addressFamily == AF_INET)
+	{
+		flowContextLocal->ipv4LocalAddr =
+			RtlUlongByteSwap(
+				inFixedValues->incomingValue\
+				[FWPS_FIELD_ALE_CONNECT_REDIRECT_V4_IP_LOCAL_ADDRESS].value.uint32
+			);
+		flowContextLocal->ipv4toRemoteAddr =
+			RtlUlongByteSwap(
+				inFixedValues->incomingValue\
+				[FWPS_FIELD_ALE_CONNECT_REDIRECT_V4_IP_REMOTE_ADDRESS].value.uint32
+			);
+		flowContextLocal->protocol =
+			inFixedValues->incomingValue\
+			[FWPS_FIELD_ALE_CONNECT_REDIRECT_V4_IP_PROTOCOL].value.uint8;
+		flowContextLocal->toLocalPort =
+			inFixedValues->incomingValue[FWPS_FIELD_ALE_CONNECT_REDIRECT_V4_IP_LOCAL_PORT].value.uint16;
+		flowContextLocal->toRemotePort =
+			inFixedValues->incomingValue[FWPS_FIELD_ALE_CONNECT_REDIRECT_V4_IP_REMOTE_PORT].value.uint16;
+	}
+	else
+	{
+		RtlCopyMemory(
+			(UINT8*)&flowContextLocal->localAddr,
+			inFixedValues->incomingValue\
+			[FWPS_FIELD_ALE_CONNECT_REDIRECT_V6_IP_LOCAL_ADDRESS].value.byteArray16,
+			sizeof(FWP_BYTE_ARRAY16)
+		);
+		RtlCopyMemory(
+			(UINT8*)&flowContextLocal->RemoteAddr,
+			inFixedValues->incomingValue\
+			[FWPS_FIELD_ALE_CONNECT_REDIRECT_V6_IP_REMOTE_ADDRESS].value.byteArray16,
+			sizeof(FWP_BYTE_ARRAY16)
+		);
+		flowContextLocal->protocol =
+			inFixedValues->incomingValue\
+			[FWPS_FIELD_ALE_CONNECT_REDIRECT_V6_IP_PROTOCOL].value.uint8;
+		flowContextLocal->toLocalPort =
+			inFixedValues->incomingValue[FWPS_FIELD_ALE_CONNECT_REDIRECT_V6_IP_LOCAL_PORT].value.uint16;
+		flowContextLocal->toRemotePort =
+			inFixedValues->incomingValue[FWPS_FIELD_ALE_CONNECT_REDIRECT_V6_IP_REMOTE_PORT].value.uint16;
+	}
+	DbgBreakPoint();
+	flowContextLocal->processId = inMetaValues->processId;
+	flowContextLocal->processPathSize = inMetaValues->processPath->size;
+	RtlCopyMemory(flowContextLocal->processPath, inMetaValues->processPath->data, inMetaValues->processPath->size);
+
+	establishedctx_pushflowestablishedctx(flowContextLocal, sizeof(NF_CALLOUT_FLOWESTABLISHED_INFO));
+	
+	classifyOut->actionType = FWP_ACTION_PERMIT;
+	if (filter->flags & FWPS_FILTER_FLAG_CLEAR_ACTION_RIGHT)
+	{
+		classifyOut->flags &= ~FWPS_RIGHT_ACTION_WRITE;
+	}
+
+Exit:
+	if (flowContextLocal)
+	{
+		sl_lock(&g_callouts_flowspinlock, &lh);
+		ExFreeToNPagedLookasideList(&g_callouts_flowCtxPacketsLAList, flowContextLocal);
+		flowContextLocal = NULL;
+		sl_unlock(&lh);
+	}
+
+	if (!NT_SUCCESS(status))
+	{
+		classifyOut->actionType = FWP_ACTION_BLOCK;
+		classifyOut->rights &= ~FWPS_RIGHT_ACTION_WRITE;
+	}
+
+}
+
+NTSTATUS
+helper_callout_notifyFn_connectredirect(
+	_In_ FWPS_CALLOUT_NOTIFY_TYPE notifyType,
+	_In_ const GUID* filterKey,
+	_Inout_ const FWPS_FILTER* filter
+	)
+{
+	NTSTATUS status = STATUS_SUCCESS;
+	UNREFERENCED_PARAMETER(notifyType);
+	UNREFERENCED_PARAMETER(filter);
+	UNREFERENCED_PARAMETER(filterKey);
+	return status;
 }
 
 /*	=============================================
@@ -720,23 +864,35 @@ callouts_addFilters()
 		if (!NT_SUCCESS(status))
 			break;
 		
-		status = callout_addDataLinkMacFilter(
-			&g_calloutGuid_inbound_mac_etherent,
-			&FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET,
-			&subLayer,
-			1
-		);
-		if (!NT_SUCCESS(status))
-			break;
+		//status = callout_addDataLinkMacFilter(
+		//	&g_calloutGuid_inbound_mac_etherent,
+		//	&FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET,
+		//	&subLayer,
+		//	1
+		//);
+		//if (!NT_SUCCESS(status))
+		//	break;
 
-		status = callout_addDataLinkMacFilter(
-			&g_calloutGuid_outbound_mac_etherent,
-			&FWPM_LAYER_OUTBOUND_MAC_FRAME_ETHERNET,
-			&subLayer,
-			2
-		);
-		if (!NT_SUCCESS(status))
-			break;
+		//status = callout_addDataLinkMacFilter(
+		//	&g_calloutGuid_outbound_mac_etherent,
+		//	&FWPM_LAYER_OUTBOUND_MAC_FRAME_ETHERNET,
+		//	&subLayer,
+		//	2
+		//);
+		//if (!NT_SUCCESS(status))
+		//	break;
+
+		//status = callout_addFlowEstablishedFilter(
+		//	&g_calloutGuid_ale_connectredirect_v4,
+		//	&FWPM_LAYER_ALE_CONNECT_REDIRECT_V4,
+		//	&subLayer
+		//);
+
+		//status = callout_addFlowEstablishedFilter(
+		//	&g_calloutGuid_ale_connectredirect_v6,
+		//	&FWPM_LAYER_ALE_CONNECT_REDIRECT_V6,
+		//	&subLayer
+		//);
 	
 		//// FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET
 		//status = callout_addDataLinkMacFilter(&g_calloutGuid_inbound_mac_native, &FWPM_LAYER_INBOUND_MAC_FRAME_NATIVE, &subLayer,3);
@@ -802,27 +958,56 @@ callouts_registerCallouts(
 			g_calloutId_flow_established_v6
 		);
 
-		// FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET
-		status = helper_callout_registerCallout(
-			deviceObject,
-			helper_callout_classFn_mac,
-			helper_callout_notifyFn_mac,
-			helper_callout_deleteFn_mac,
-			&g_calloutGuid_inbound_mac_etherent,
-			0,
-			g_calloutId_inbound_mac_etherent
-		);
+		// TCP Buffer v4
 
-		// FWPM_LAYER_OUTBOUND_MAC_FRAME_ETHERNET
-		status = helper_callout_registerCallout(
-			deviceObject,
-			helper_callout_classFn_mac,
-			helper_callout_notifyFn_mac,
-			helper_callout_deleteFn_mac,
-			&g_calloutGuid_outbound_mac_etherent,
-			0,
-			g_calloutId_outbound_mac_etherent
-		);
+		// TCP Buffer v6
+
+		// UDP Buffer v4
+
+		// UDP Buffer v6
+
+		//// FWPM_LAYER_INBOUND_MAC_FRAME_ETHERNET
+		//status = helper_callout_registerCallout(
+		//	deviceObject,
+		//	helper_callout_classFn_mac,
+		//	helper_callout_notifyFn_mac,
+		//	helper_callout_deleteFn_mac,
+		//	&g_calloutGuid_inbound_mac_etherent,
+		//	0,
+		//	g_calloutId_inbound_mac_etherent
+		//);
+
+		//// FWPM_LAYER_OUTBOUND_MAC_FRAME_ETHERNET
+		//status = helper_callout_registerCallout(
+		//	deviceObject,
+		//	helper_callout_classFn_mac,
+		//	helper_callout_notifyFn_mac,
+		//	helper_callout_deleteFn_mac,
+		//	&g_calloutGuid_outbound_mac_etherent,
+		//	0,
+		//	g_calloutId_outbound_mac_etherent
+		//);
+
+		//// FWPM_LAYER_ALE_CONNECT_REDIRECT_V4
+		//status = helper_callout_registerCallout(
+		//	deviceObject,
+		//	helper_callout_classFn_connectredirect,
+		//	helper_callout_notifyFn_connectredirect,
+		//	NULL,
+		//	&g_calloutGuid_ale_connectredirect_v4,
+		//	0,
+		//	&g_calloutId_ale_connectredirect_v4
+		//);
+
+		//status = helper_callout_registerCallout(
+		//	deviceObject,
+		//	helper_callout_classFn_connectredirect,
+		//	helper_callout_notifyFn_connectredirect,
+		//	NULL,
+		//	&g_calloutGuid_ale_connectredirect_v6,
+		//	0,
+		//	&g_calloutId_ale_connectredirect_v6
+		//);
 
 		//// FWPM_LAYER_INBOUND_MAC_FRAME_NATIVE
 		//status = helper_callout_registerCallout(
@@ -880,6 +1065,8 @@ BOOLEAN callout_init(
 	ExUuidCreate(&g_calloutGuid_outbound_mac_etherent);
 	ExUuidCreate(&g_calloutGuid_inbound_mac_native);
 	ExUuidCreate(&g_calloutGuid_outbound_mac_native);
+	ExUuidCreate(&g_calloutGuid_ale_connectredirect_v4);
+	ExUuidCreate(&g_calloutGuid_ale_connectredirect_v6);
 	ExUuidCreate(&g_providerGuid);
 	ExUuidCreate(&g_sublayerGuid);
 
@@ -962,10 +1149,12 @@ VOID callout_free()
 	ExDeleteNPagedLookasideList(&g_callouts_datalinkPacktsList);
 
 	// clean guid
-	// FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_flow_established_v4);
-	// FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_flow_established_v6);
+	FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_flow_established_v4);
+	FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_flow_established_v6);
 	FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_inbound_mac_etherent);
 	FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_outbound_mac_etherent);
+	FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_ale_connectredirect_v4);
+	FwpsCalloutUnregisterByKey(g_engineHandle, &g_calloutGuid_ale_connectredirect_v6);
 
 	// clean SubLayer
 	FwpmSubLayerDeleteByKey(g_engineHandle, &g_sublayerGuid);
