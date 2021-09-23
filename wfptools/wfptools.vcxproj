@@ -153,6 +153,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="devctrl.h" />
+    <ClInclude Include="eventQueue.h" />
     <ClInclude Include="nf_api.h" />
     <ClInclude Include="nfdriver.h" />
     <ClInclude Include="nfevents.h" />

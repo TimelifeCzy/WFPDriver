@@ -34,8 +34,8 @@ VOID establishedctx_clean()
 	{
 		p_flowdata = RemoveHeadList(&g_flowesobj.pendedPackets);
 		sl_unlock(&lh);
-
-		ExFreeToNPagedLookasideList(&g_establishedList, p_flowdata);
+		establishedctx_packfree(p_flowdata);
+		p_flowdata = NULL;
 		sl_lock(&g_flowesobj.lock, &lh);
 	}
 	sl_unlock(&lh);

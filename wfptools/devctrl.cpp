@@ -18,7 +18,6 @@ static AutoEventHandle		g_ioPostEvent;
 static AutoEventHandle		g_ioEvent;
 static AutoEventHandle		g_stopEvent;
 static DWORD WINAPI	nf_workThread(LPVOID lpThreadParameter);
-// static DWORD WINAPI nf_AlpcworkThread(LPVOID lpThreadParameter);
 static NF_EventHandler* g_pEventHandler = NULL;
 static char	g_driverName[MAX_PATH] = { 0 };
 HANDLE	g_deviceHandle;
@@ -74,35 +73,6 @@ int DevctrlIoct::devctrl_workthread()
 		return 0;
 	return 1;
 }
-
-//int DevctrlIoct::devctrl_Alpcworkthread()
-//{
-//	WCHAR AlpcDriverPortName[] = L"\\RPC Control\\AlpcDriverPort";
-//	// start thread
-//	m_alpcthreadobjhandler = CreateThread(
-//		NULL,
-//		0,
-//		(LPTHREAD_START_ROUTINE)AlpcPortStart,
-//		(LPVOID)AlpcDriverPortName,
-//		0,
-//		&m_dwthreadid
-//	);
-//	if (!m_threadobjhandler)
-//		return 0;
-//
-//	m_listthreadobjhandler = CreateThread(
-//		NULL,
-//		0,
-//		(LPTHREAD_START_ROUTINE)list_thread,
-//		NULL,
-//		0,
-//		&m_dwthreadid1
-//	);
-//	if (!m_listthreadobjhandler)
-//		return 0;
-//
-//	return 1;
-//}
 
 int DevctrlIoct::devctrl_opendeviceSylink(const char* devSylinkName)
 {

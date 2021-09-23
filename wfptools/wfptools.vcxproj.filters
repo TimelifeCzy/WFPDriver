@@ -44,5 +44,8 @@
     <ClInclude Include="nf_api.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="eventQueue.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
