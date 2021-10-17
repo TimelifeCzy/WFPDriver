@@ -1,4 +1,6 @@
 # wfp_datalink_demo
+**历史遗留版本有BUG，新版已经集成到了theSecHunter项目中(流量探针)，这里只是记录最初的方案如下：**
+
 最初方案wfp+ndis，后来请教Netfilter sdk2.0，思路一致但是给出了更优的方案(win8 - win10)：
 
 If    you   have   callouts   on   FWPM_LAYER_ALE_AUTH_CONNECT_*   and
@@ -17,5 +19,3 @@ wfp做FWPM_LAYER_ALE_AUTH_CONNECT_、FWPM_LAYER_ALE_AUTH_LISTEN_映射IP - PORT 
 该代码方案：
 通过established layer (tcp/udp)捕获processpath - pid - ip:port，数据上传应用层建立链路层查询表，mac_frame捕获链路层数据上传应用层。
 应用层做关联，mac_frame通过ip:port来关联established layer的数据(查询表)，从而关联进程信息。
-
-后续它将作为Windows流量探测工作
